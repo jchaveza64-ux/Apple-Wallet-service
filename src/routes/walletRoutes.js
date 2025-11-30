@@ -1,9 +1,8 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
-import { PassGenerator } from '../services/passGenerator.js';
+import passGenerator from '../services/passGenerator.js';
 
 const router = express.Router();
-const passGenerator = new PassGenerator();
 
 // Endpoint para generar y descargar el pase
 router.get('/wallet', async (req, res) => {
@@ -44,29 +43,25 @@ router.get('/wallet', async (req, res) => {
       return res.status(404).json({ error: 'Wallet configuration not found' });
     }
 
-    // Generar el pase
-    const passData = {
-      serialNumber: `${businessId}-${customerId}`,
-      organizationName: config.business_name || 'Mi Negocio',
-      description: config.card_description || 'Tarjeta de Fidelidad',
-      logoText: config.logo_text || config.business_name,
-      foregroundColor: config.foreground_color || 'rgb(255, 255, 255)',
-      backgroundColor: config.background_color || 'rgb(0, 122, 255)',
-      labelColor: config.label_color || 'rgb(255, 255, 255)',
-      customer: {
-        name: customer.name,
-        email: customer.email,
-        points: customer.points || 0,
+    // Generar el pase usando el método correcto
+    const passData = await passGenerator.generateLoyaltyPass({
+      userId: customerId,
+      name: customer.name || 'Cliente',
+      email: customer.email || '',
+      points: customer.points || 0,
+      tier: customer.tier || 'Básico',
+      customData: {
+        businessId: businessId,
+        configId: configId,
+        businessName: config.business_name
       }
-    };
-
-    const passBuffer = await passGenerator.generatePass(passData);
+    });
 
     // Configurar headers para descarga
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', `attachment; filename="${passData.serialNumber}.pkpass"`);
+    res.setHeader('Content-Disposition', `attachment; filename="loyalty-${customerId}.pkpass"`);
     
-    res.send(passBuffer);
+    res.send(passData.buffer);
 
   } catch (error) {
     console.error('Error generating wallet pass:', error);
