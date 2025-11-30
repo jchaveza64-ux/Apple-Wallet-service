@@ -49,14 +49,18 @@ router.get('/wallet', async (req, res) => {
       return res.status(404).json({ error: 'Wallet configuration not found' });
     }
 
-    console.log('Customer data:', { name: customer.name, points: customer.points });
-    console.log('Config data:', { businessName: config.business_name });
+    console.log('Customer:', { name: customer.name, points: customer.points });
+    console.log('Config:', { businessName: config.business_name });
 
-    // Crear el pase directamente con los certificados del manager
+    // Crear el pase usando las rutas de los certificados
     const pass = await PKPass.from(
       {
         model: path.join(__dirname, '../templates/loyalty.pass'),
-        certificates: certificateManager.certificates
+        certificates: {
+          wwdr: certificateManager.getCertificatePath('wwdr.pem'),
+          signerCert: certificateManager.getCertificatePath('signerCert.pem'),
+          signerKey: certificateManager.getCertificatePath('signerKey.pem'),
+        }
       },
       {
         // Datos requeridos
@@ -66,15 +70,15 @@ router.get('/wallet', async (req, res) => {
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER,
         teamIdentifier: process.env.TEAM_IDENTIFIER,
 
-        // Colores personalizados
+        // Colores
         backgroundColor: config.background_color || 'rgb(33, 150, 243)',
         foregroundColor: config.foreground_color || 'rgb(255, 255, 255)',
         labelColor: config.label_color || 'rgb(255, 255, 255)',
         
-        // Texto del logo
-        logoText: config.logo_text || config.business_name || 'Programa de Lealtad',
+        // Logo text
+        logoText: config.logo_text || config.business_name || 'Lealtad',
 
-        // Configuración de la tarjeta de lealtad
+        // Configuración de tarjeta
         storeCard: {
           primaryFields: [
             {
@@ -105,13 +109,13 @@ router.get('/wallet', async (req, res) => {
             },
             {
               key: 'terms',
-              label: 'Términos y Condiciones',
-              value: 'Válido para canjear recompensas según el programa de lealtad.'
+              label: 'Términos',
+              value: 'Válido para canjear recompensas.'
             }
           ]
         },
 
-        // Código de barras QR
+        // QR Code
         barcodes: [
           {
             format: 'PKBarcodeFormatQR',
@@ -120,29 +124,25 @@ router.get('/wallet', async (req, res) => {
           }
         ],
 
-        // Web service URL para actualizaciones
+        // Web service
         webServiceURL: process.env.BASE_URL,
         authenticationToken: Buffer.from(`${customerId}-${Date.now()}`).toString('base64')
       }
     );
 
-    // Generar el buffer del pase
     const passBuffer = pass.getAsBuffer();
+    console.log('✅ Pass generated, size:', passBuffer.length, 'bytes');
 
-    console.log('✅ Pass generated successfully, size:', passBuffer.length, 'bytes');
-
-    // Configurar headers para descarga
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
     res.setHeader('Content-Disposition', `attachment; filename="loyalty-${customer.name || customerId}.pkpass"`);
     
     res.send(passBuffer);
 
   } catch (error) {
-    console.error('❌ Error generating wallet pass:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({ 
       error: 'Failed to generate wallet pass',
-      details: error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      details: error.message
     });
   }
 });
