@@ -52,18 +52,11 @@ router.get('/wallet', async (req, res) => {
     console.log('Customer data:', { name: customer.name, points: customer.points });
     console.log('Config data:', { businessName: config.business_name });
 
-    // Obtener certificados
-    const certificates = await certificateManager.getCertificates();
-
-    // Crear el pase directamente con PKPass
+    // Crear el pase directamente con los certificados del manager
     const pass = await PKPass.from(
       {
         model: path.join(__dirname, '../templates/loyalty.pass'),
-        certificates: {
-          wwdr: certificates.wwdr,
-          signerCert: certificates.signerCert,
-          signerKey: certificates.signerKey,
-        }
+        certificates: certificateManager.certificates
       },
       {
         // Datos requeridos
@@ -136,7 +129,7 @@ router.get('/wallet', async (req, res) => {
     // Generar el buffer del pase
     const passBuffer = pass.getAsBuffer();
 
-    console.log('Pass generated successfully, size:', passBuffer.length, 'bytes');
+    console.log('✅ Pass generated successfully, size:', passBuffer.length, 'bytes');
 
     // Configurar headers para descarga
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
