@@ -1,0 +1,92 @@
+=================================================================
+INSTRUCCIONES PARA CONVERTIR CERTIFICADOS A BASE64
+=================================================================
+
+Tienes 2 opciones: PowerShell (local) o herramienta online
+
+-----------------------------------------------------------------
+OPCIÓN 1: PowerShell (RECOMENDADA - más segura)
+-----------------------------------------------------------------
+
+1. Abre PowerShell (búscalo en el menú de inicio)
+
+2. Copia y pega este comando (presiona Enter):
+
+cd "C:\Users\José\Desktop\CLAUDE\apple-wallet-service\certificates"
+
+3. Ejecuta estos 3 comandos uno por uno:
+
+--- CERTIFICADO 1: wwdr.pem ---
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("wwdr.pem"))
+
+Copia TODO el texto que aparece y pégalo en un bloc de notas.
+Etiquétalo como: CERT_WWDR_BASE64
+
+
+--- CERTIFICADO 2: signerCert.pem ---
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("signerCert.pem"))
+
+Copia TODO el texto que aparece y pégalo en el bloc de notas.
+Etiquétalo como: CERT_SIGNER_BASE64
+
+
+--- CERTIFICADO 3: signerKey.pem ---
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("signerKey.pem"))
+
+Copia TODO el texto que aparece y pégalo en el bloc de notas.
+Etiquétalo como: CERT_SIGNER_KEY_BASE64
+
+
+-----------------------------------------------------------------
+OPCIÓN 2: Herramienta Online (más fácil pero menos segura)
+-----------------------------------------------------------------
+
+1. Ve a: https://www.base64encode.org/
+
+2. Click en "Choose File" o arrastra cada archivo:
+   - C:\Users\José\Desktop\CLAUDE\apple-wallet-service\certificates\wwdr.pem
+   - C:\Users\José\Desktop\CLAUDE\apple-wallet-service\certificates\signerCert.pem
+   - C:\Users\José\Desktop\CLAUDE\apple-wallet-service\certificates\signerKey.pem
+
+3. Para cada archivo:
+   - Sube el archivo
+   - Click en "Encode file to Base64"
+   - Copia el resultado
+   - Pégalo en un bloc de notas con su etiqueta
+
+-----------------------------------------------------------------
+OPCIÓN 3: NO usar base64 (alternativa)
+-----------------------------------------------------------------
+
+En lugar de convertir a base64, puedes:
+
+1. Desplegar el servicio en Render SIN los certificados
+2. Luego, usar las variables de entorno directamente
+3. O contactar a soporte de Render para subir archivos
+
+PERO la opción 1 (PowerShell) es la más recomendada y simple.
+
+-----------------------------------------------------------------
+SIGUIENTE PASO: Agregar en Render
+-----------------------------------------------------------------
+
+Una vez que tengas los 3 valores en base64:
+
+1. Ve a Render Dashboard → tu servicio → Environment
+2. Agrega estas 3 variables:
+
+   Nombre: CERT_WWDR_BASE64
+   Valor: (pega el texto largo de wwdr.pem)
+
+   Nombre: CERT_SIGNER_BASE64
+   Valor: (pega el texto largo de signerCert.pem)
+
+   Nombre: CERT_SIGNER_KEY_BASE64
+   Valor: (pega el texto largo de signerKey.pem)
+
+3. Click en "Save Changes"
+4. Render redesplegará automáticamente
+
+=================================================================
+
+¿Necesitas ayuda? Sigue la OPCIÓN 1 paso a paso.

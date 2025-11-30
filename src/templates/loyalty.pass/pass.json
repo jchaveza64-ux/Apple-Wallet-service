@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "passTypeIdentifier": "",
+  "serialNumber": "",
+  "teamIdentifier": "",
+  "organizationName": "",
+  "description": "Tarjeta de Lealtad",
+  "logoText": "Mi Programa de Lealtad",
+  "backgroundColor": "rgb(33, 150, 243)",
+  "foregroundColor": "rgb(255, 255, 255)",
+  "labelColor": "rgb(255, 255, 255)",
+  "storeCard": {}
+}

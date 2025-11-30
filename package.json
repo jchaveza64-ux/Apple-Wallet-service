@@ -1,0 +1,22 @@
+{
+  "name": "apple-wallet-loyalty-service",
+  "version": "1.0.0",
+  "description": "Backend service for Apple Wallet Loyalty Cards integration",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": ["apple-wallet", "passkit", "loyalty-cards"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "passkit-generator": "^3.5.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "@supabase/supabase-js": "^2.39.0",
+    "express-validator": "^7.0.1"
+  }
+}

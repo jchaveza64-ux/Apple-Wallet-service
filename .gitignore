@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Certificates (NUNCA subir a git)
+certificates/*.pem
+certificates/*.p12
+certificates/*.key
+certificates/*.cer
+certificates/*.p8
+certificates/*.csr
+certificates/*_base64.txt
+!certificates/.gitkeep
+!certificates/README.md
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated passes
+passes/
+*.pkpass
+
+# IDE
+.vscode/
+.idea/
