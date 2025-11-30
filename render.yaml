@@ -1,21 +1,18 @@
-# Configuración para Render
-# Este archivo permite deployment automático desde GitHub
-
 services:
   - type: web
     name: apple-wallet-service
     env: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node src/index.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-      # Las siguientes variables deben configurarse manualmente en Render Dashboard
-      # por seguridad (no incluir valores sensibles aquí)
       - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
@@ -29,6 +26,14 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
-      - key: APPLE_PUSH_CERT_PASSWORD
+      - key: APPLE_APNS_KEY_ID
+        sync: false
+      - key: APPLE_APNS_KEY
+        sync: false
+      - key: CERT_WWDR_BASE64
+        sync: false
+      - key: CERT_SIGNER_BASE64
+        sync: false
+      - key: CERT_SIGNER_KEY_BASE64
         sync: false
     healthCheckPath: /health
