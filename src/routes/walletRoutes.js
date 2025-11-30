@@ -1,6 +1,12 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
-import passGenerator from '../services/passGenerator.js';
+import { PKPass } from 'passkit-generator';
+import certificateManager from '../config/certificates.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
@@ -43,31 +49,107 @@ router.get('/wallet', async (req, res) => {
       return res.status(404).json({ error: 'Wallet configuration not found' });
     }
 
-    // Generar el pase usando el método correcto
-    const passData = await passGenerator.generateLoyaltyPass({
-      userId: customerId,
-      name: customer.name || 'Cliente',
-      email: customer.email || '',
-      points: customer.points || 0,
-      tier: customer.tier || 'Básico',
-      customData: {
-        businessId: businessId,
-        configId: configId,
-        businessName: config.business_name
+    console.log('Customer data:', { name: customer.name, points: customer.points });
+    console.log('Config data:', { businessName: config.business_name });
+
+    // Obtener certificados
+    const certificates = await certificateManager.getCertificates();
+
+    // Crear el pase directamente con PKPass
+    const pass = await PKPass.from(
+      {
+        model: path.join(__dirname, '../templates/loyalty.pass'),
+        certificates: {
+          wwdr: certificates.wwdr,
+          signerCert: certificates.signerCert,
+          signerKey: certificates.signerKey,
+        }
+      },
+      {
+        // Datos requeridos
+        serialNumber: `${businessId}-${customerId}`,
+        description: config.card_description || 'Tarjeta de Fidelidad',
+        organizationName: config.business_name || process.env.ORGANIZATION_NAME || 'Mi Negocio',
+        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER,
+        teamIdentifier: process.env.TEAM_IDENTIFIER,
+
+        // Colores personalizados
+        backgroundColor: config.background_color || 'rgb(33, 150, 243)',
+        foregroundColor: config.foreground_color || 'rgb(255, 255, 255)',
+        labelColor: config.label_color || 'rgb(255, 255, 255)',
+        
+        // Texto del logo
+        logoText: config.logo_text || config.business_name || 'Programa de Lealtad',
+
+        // Configuración de la tarjeta de lealtad
+        storeCard: {
+          primaryFields: [
+            {
+              key: 'points',
+              label: 'Puntos',
+              value: customer.points || 0
+            }
+          ],
+          secondaryFields: [
+            {
+              key: 'name',
+              label: 'Titular',
+              value: customer.name || 'Cliente'
+            }
+          ],
+          auxiliaryFields: [
+            {
+              key: 'member',
+              label: 'Miembro desde',
+              value: new Date(customer.created_at).toLocaleDateString('es-ES')
+            }
+          ],
+          backFields: [
+            {
+              key: 'email',
+              label: 'Email',
+              value: customer.email || ''
+            },
+            {
+              key: 'terms',
+              label: 'Términos y Condiciones',
+              value: 'Válido para canjear recompensas según el programa de lealtad.'
+            }
+          ]
+        },
+
+        // Código de barras QR
+        barcodes: [
+          {
+            format: 'PKBarcodeFormatQR',
+            message: customerId,
+            messageEncoding: 'iso-8859-1'
+          }
+        ],
+
+        // Web service URL para actualizaciones
+        webServiceURL: process.env.BASE_URL,
+        authenticationToken: Buffer.from(`${customerId}-${Date.now()}`).toString('base64')
       }
-    });
+    );
+
+    // Generar el buffer del pase
+    const passBuffer = pass.getAsBuffer();
+
+    console.log('Pass generated successfully, size:', passBuffer.length, 'bytes');
 
     // Configurar headers para descarga
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', `attachment; filename="loyalty-${customerId}.pkpass"`);
+    res.setHeader('Content-Disposition', `attachment; filename="loyalty-${customer.name || customerId}.pkpass"`);
     
-    res.send(passData.buffer);
+    res.send(passBuffer);
 
   } catch (error) {
-    console.error('Error generating wallet pass:', error);
+    console.error('❌ Error generating wallet pass:', error);
     res.status(500).json({ 
       error: 'Failed to generate wallet pass',
-      details: error.message 
+      details: error.message,
+      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
     });
   }
 });
