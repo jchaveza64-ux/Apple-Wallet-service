@@ -1,13 +1,19 @@
 {
   "formatVersion": 1,
-  "passTypeIdentifier": "",
-  "serialNumber": "",
-  "teamIdentifier": "",
-  "organizationName": "",
+  "passTypeIdentifier": "pass.com.innobizz.fidelityhub",
+  "serialNumber": "placeholder",
+  "teamIdentifier": "KSBK2MDDF6",
+  "organizationName": "Placeholder",
   "description": "Tarjeta de Lealtad",
   "logoText": "Mi Programa de Lealtad",
   "backgroundColor": "rgb(33, 150, 243)",
   "foregroundColor": "rgb(255, 255, 255)",
   "labelColor": "rgb(255, 255, 255)",
-  "storeCard": {}
+  "storeCard": {
+    "headerFields": [],
+    "primaryFields": [],
+    "secondaryFields": [],
+    "auxiliaryFields": [],
+    "backFields": []
+  }
 }
