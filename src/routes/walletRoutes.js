@@ -54,10 +54,14 @@ router.get('/wallet', async (req, res) => {
     }
 
     console.log('✅ Customer found:', customerData.full_name);
-    console.log('🔍 Full customer data:', JSON.stringify(customerData, null, 2));
-    console.log('📊 Loyalty cards array:', customerData.loyalty_cards);
-    console.log('📊 First loyalty card:', customerData.loyalty_cards?.[0]);
-    console.log('📊 Customer points:', customerData.loyalty_cards?.[0]?.current_points || 0);
+
+    // Supabase devuelve objeto (no array) cuando hay un solo registro
+    const loyaltyCard = Array.isArray(customerData.loyalty_cards) 
+      ? customerData.loyalty_cards[0] 
+      : customerData.loyalty_cards;
+
+    console.log('📊 Loyalty card data:', loyaltyCard);
+    console.log('📊 Current points:', loyaltyCard?.current_points);
 
     // ============================================
     // 2. OBTENER DATOS DEL NEGOCIO
@@ -119,16 +123,12 @@ router.get('/wallet', async (req, res) => {
 
     // Extraer datos
     const appleConfig = passkitConfig.apple_config || {};
-    const loyaltyCard = customerData.loyalty_cards?.[0] || {};
-    
-    console.log('🔍 Loyalty card extracted:', loyaltyCard);
-    console.log('🔍 Points value:', loyaltyCard.current_points);
 
     // ============================================
     // 5. GENERAR EL PASE CON PASSKIT-GENERATOR
     // ============================================
 
-    const serialNumber = loyaltyCard.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     const authenticationToken = Buffer.from(
       `${customerId}-${businessId}-${Date.now()}`
     ).toString('base64');
@@ -161,7 +161,7 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'points',
               label: 'PUNTOS',
-              value: loyaltyCard.current_points ?? 0,
+              value: loyaltyCard?.current_points ?? 0,
               changeMessage: 'Tus puntos cambiaron a %@'
             }
           ],
@@ -249,7 +249,8 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent to client');
     console.log('📋 Pass details:', {
       customer: customerData.full_name,
-      points: loyaltyCard.current_points ?? 0,
+      points: loyaltyCard?.current_points ?? 0,
+      stamps: loyaltyCard?.current_stamps ?? 0,
       business: businessData.name,
       cardNumber: serialNumber
     });
