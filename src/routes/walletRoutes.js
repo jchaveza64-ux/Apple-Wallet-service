@@ -17,15 +17,23 @@ const router = express.Router();
  */
 async function downloadImage(url, destPath) {
   return new Promise((resolve, reject) => {
-    const file = require('fs').createWriteStream(destPath);
     https.get(url, (response) => {
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolve(destPath);
+      const chunks = [];
+      
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
+      response.on('end', async () => {
+        try {
+          const buffer = Buffer.concat(chunks);
+          await fs.writeFile(destPath, buffer);
+          resolve(destPath);
+        } catch (err) {
+          reject(err);
+        }
       });
     }).on('error', (err) => {
-      require('fs').unlink(destPath, () => {});
       reject(err);
     });
   });
@@ -154,30 +162,37 @@ router.get('/wallet', async (req, res) => {
     console.log('📥 Downloading images from Supabase...');
 
     try {
-      // Descargar logo
+      // Descargar logo (requerido por Apple Wallet)
       if (appleConfig.logo_url) {
         await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
         await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
         await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+        console.log('✅ Logo downloaded');
       }
 
-      // Descargar icon
+      // Descargar icon (REQUERIDO por Apple Wallet)
       if (appleConfig.icon_url) {
         await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
         await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
         await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+        console.log('✅ Icon downloaded');
       }
 
-      // Descargar strip
+      // Descargar strip (opcional pero recomendado)
       if (appleConfig.strip_image_url) {
         await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
         await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
         await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+        console.log('✅ Strip downloaded');
       }
 
-      console.log('✅ Images downloaded successfully');
+      console.log('✅ All images downloaded successfully');
     } catch (imageError) {
-      console.warn('⚠️ Image download failed:', imageError.message);
+      console.error('❌ Image download failed:', imageError.message);
+      return res.status(500).json({ 
+        error: 'Failed to download images from Supabase',
+        details: imageError.message 
+      });
     }
 
     // ============================================
@@ -208,6 +223,12 @@ router.get('/wallet', async (req, res) => {
     // Web service
     pass.webServiceURL = process.env.BASE_URL || '';
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+
+    console.log('🎨 Colors applied:', {
+      background: pass.backgroundColor,
+      foreground: pass.foregroundColor,
+      label: pass.labelColor
+    });
 
     // ============================================
     // 6. CAMPOS DINÁMICOS DESDE member_fields
@@ -252,6 +273,8 @@ router.get('/wallet', async (req, res) => {
       }
     });
 
+    console.log('✅ Fields configured from member_fields');
+
     // ============================================
     // 7. BARCODE DESDE barcode_config
     // ============================================
@@ -264,6 +287,8 @@ router.get('/wallet', async (req, res) => {
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || serialNumber
     });
+
+    console.log('✅ Barcode configured');
 
     // ============================================
     // 8. BACK FIELDS
@@ -316,7 +341,9 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Pass sent successfully');
 
-    // Limpiar imágenes temporales
+    // ============================================
+    // 10. LIMPIAR IMÁGENES TEMPORALES
+    // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
       await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
@@ -327,7 +354,7 @@ router.get('/wallet', async (req, res) => {
       await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
       await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
       await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
-      console.log('🧹 Cleaned up temporary template');
+      console.log('🧹 Cleaned up temporary images');
     } catch (cleanupError) {
       // Ignorar errores de limpieza
     }
