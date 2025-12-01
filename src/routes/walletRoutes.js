@@ -114,11 +114,11 @@ router.get('/wallet', async (req, res) => {
     );
 
     // ============================================
-    // 5. MODIFICAR CAMPOS DEL PASE
+    // 5. CONFIGURAR DATOS BÁSICOS
     // ============================================
     
-    // Datos básicos
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+    
     pass.serialNumber = serialNumber;
     pass.passTypeIdentifier = process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id;
     pass.teamIdentifier = process.env.TEAM_IDENTIFIER || appleConfig.team_id;
@@ -136,40 +136,25 @@ router.get('/wallet', async (req, res) => {
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
     // ============================================
-    // 6. MODIFICAR CAMPOS DE LA TARJETA
+    // 6. ESTRUCTURA DE CAMPOS (estilo ORIGEN)
     // ============================================
     
-    // Primary field - Puntos
-    pass.primaryFields.push({
+    // Header fields - Nombre y Puntos en una fila horizontal debajo del strip
+    pass.headerFields.push({
+      key: 'name',
+      label: 'NOMBRE',
+      value: customerData.full_name || 'Cliente',
+      textAlignment: 'PKTextAlignmentLeft'
+    });
+
+    pass.headerFields.push({
       key: 'points',
       label: 'PUNTOS',
-      value: Number(loyaltyCard?.current_points ?? 0)
+      value: Number(loyaltyCard?.current_points ?? 0),
+      textAlignment: 'PKTextAlignmentRight'
     });
 
-    // Secondary fields - Nombre y fecha
-    pass.secondaryFields.push({
-      key: 'name',
-      label: 'Titular',
-      value: customerData.full_name || 'Cliente'
-    });
-
-    pass.secondaryFields.push({
-      key: 'member_since',
-      label: 'Miembro desde',
-      value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'short'
-      })
-    });
-
-    // Auxiliary field - Número de tarjeta
-    pass.auxiliaryFields.push({
-      key: 'card_number',
-      label: 'Tarjeta',
-      value: serialNumber
-    });
-
-    // Back fields - Reverso
+    // Back fields - Información del reverso
     pass.backFields.push({
       key: 'email',
       label: 'Email',
@@ -180,6 +165,22 @@ router.get('/wallet', async (req, res) => {
       key: 'phone',
       label: 'Teléfono',
       value: customerData.phone || 'No proporcionado'
+    });
+
+    pass.backFields.push({
+      key: 'member_since',
+      label: 'Miembro desde',
+      value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    });
+
+    pass.backFields.push({
+      key: 'card_number',
+      label: 'Número de tarjeta',
+      value: serialNumber
     });
 
     pass.backFields.push({
@@ -194,7 +195,7 @@ router.get('/wallet', async (req, res) => {
       value: 'Los puntos no caducan. Consulta el catálogo de recompensas.'
     });
 
-    // Barcode - QR
+    // Barcode - QR grande
     pass.barcodes = [{
       format: 'PKBarcodeFormatQR',
       message: customerId,
@@ -202,7 +203,7 @@ router.get('/wallet', async (req, res) => {
       altText: serialNumber
     }];
 
-    console.log('🔨 Pass configured with Supabase data');
+    console.log('🔨 Pass configured with ORIGEN-style layout');
 
     // ============================================
     // 7. GENERAR Y ENVIAR
@@ -219,7 +220,7 @@ router.get('/wallet', async (req, res) => {
 
     res.send(passBuffer);
 
-    console.log('✅ Pass sent with data:', {
+    console.log('✅ Pass sent:', {
       customer: customerData.full_name,
       points: loyaltyCard?.current_points,
       business: businessData.name,
