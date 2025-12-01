@@ -55,13 +55,11 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Customer found:', customerData.full_name);
 
-    // Supabase devuelve objeto (no array) cuando hay un solo registro
     const loyaltyCard = Array.isArray(customerData.loyalty_cards) 
       ? customerData.loyalty_cards[0] 
       : customerData.loyalty_cards;
 
     console.log('📊 Loyalty card data:', loyaltyCard);
-    console.log('📊 Current points:', loyaltyCard?.current_points);
 
     // ============================================
     // 2. OBTENER DATOS DEL NEGOCIO
@@ -121,20 +119,36 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ PassKit config found:', passkitConfig.card_display_name);
 
-    // Extraer datos
     const appleConfig = passkitConfig.apple_config || {};
 
     // ============================================
-    // 5. GENERAR EL PASE CON PASSKIT-GENERATOR
+    // 5. PREPARAR DATOS DEL PASE
     // ============================================
+    const points = Number(loyaltyCard?.current_points ?? 0);
+    const serialNumber = String(loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase());
+    const customerName = String(customerData.full_name || 'Cliente');
+    const customerEmail = String(customerData.email || 'No proporcionado');
+    const customerPhone = String(customerData.phone || 'No proporcionado');
+    
+    const memberSince = new Date(customerData.created_at).toLocaleDateString('es-ES', {
+      year: 'numeric',
+      month: 'short'
+    });
 
-    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     const authenticationToken = Buffer.from(
       `${customerId}-${businessId}-${Date.now()}`
     ).toString('base64');
 
-    console.log('🔨 Creating pass with passkit-generator...');
+    console.log('🔨 Creating pass with data:', {
+      points,
+      customerName,
+      serialNumber,
+      memberSince
+    });
 
+    // ============================================
+    // 6. GENERAR EL PASE
+    // ============================================
     const pass = await PKPass.from(
       {
         model: path.join(__dirname, '../templates/loyalty.pass'),
@@ -144,25 +158,22 @@ router.get('/wallet', async (req, res) => {
         serialNumber: serialNumber,
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id,
         teamIdentifier: process.env.TEAM_IDENTIFIER || appleConfig.team_id,
-
-        organizationName: appleConfig.organization_name || businessData.name || 'Fidelity Hub',
-        description: passkitConfig.card_display_name || formConfig.title || 'Tarjeta de Fidelidad',
-        logoText: passkitConfig.card_display_name || formConfig.title,
-
-        backgroundColor: appleConfig.background_color || 'rgb(33, 150, 243)',
-        foregroundColor: appleConfig.foreground_color || 'rgb(255, 255, 255)',
-        labelColor: appleConfig.label_color || 'rgb(255, 255, 255)',
-
-        webServiceURL: process.env.BASE_URL,
+        organizationName: String(appleConfig.organization_name || businessData.name || 'Fidelity Hub'),
+        description: String(passkitConfig.card_display_name || formConfig.title || 'Tarjeta de Fidelidad'),
+        logoText: String(passkitConfig.card_display_name || formConfig.title),
+        backgroundColor: String(appleConfig.background_color || 'rgb(33, 150, 243)'),
+        foregroundColor: String(appleConfig.foreground_color || 'rgb(255, 255, 255)'),
+        labelColor: String(appleConfig.label_color || 'rgb(255, 255, 255)'),
+        webServiceURL: String(process.env.BASE_URL || ''),
         authenticationToken: authenticationToken,
-
+        
         storeCard: {
           primaryFields: [
             {
               key: 'points',
               label: 'PUNTOS',
-              value: loyaltyCard?.current_points ?? 0,
-              changeMessage: 'Tus puntos cambiaron a %@'
+              value: points,
+              textAlignment: 'PKTextAlignmentCenter'
             }
           ],
 
@@ -170,23 +181,23 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'name',
               label: 'Titular',
-              value: customerData.full_name || 'Cliente'
+              value: customerName,
+              textAlignment: 'PKTextAlignmentLeft'
             },
             {
               key: 'member_since',
               label: 'Miembro desde',
-              value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
-                year: 'numeric',
-                month: 'short'
-              })
+              value: memberSince,
+              textAlignment: 'PKTextAlignmentRight'
             }
           ],
 
           auxiliaryFields: [
             {
               key: 'card_number',
-              label: 'Número de tarjeta',
-              value: serialNumber
+              label: 'Tarjeta',
+              value: serialNumber,
+              textAlignment: 'PKTextAlignmentCenter'
             }
           ],
 
@@ -194,12 +205,12 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'email',
               label: 'Email',
-              value: customerData.email || 'No proporcionado'
+              value: customerEmail
             },
             {
               key: 'phone',
               label: 'Teléfono',
-              value: customerData.phone || 'No proporcionado'
+              value: customerPhone
             },
             {
               key: 'business_info',
@@ -209,7 +220,7 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'terms',
               label: 'Términos y Condiciones',
-              value: 'Los puntos no caducan. Consulta el catálogo de recompensas en nuestra app.'
+              value: 'Los puntos no caducan. Consulta el catálogo de recompensas.'
             }
           ]
         },
@@ -221,14 +232,7 @@ router.get('/wallet', async (req, res) => {
             messageEncoding: 'iso-8859-1',
             altText: serialNumber
           }
-        ],
-
-        userInfo: {
-          customerId: customerId,
-          businessId: businessId,
-          configId: configId,
-          cardNumber: serialNumber
-        }
+        ]
       }
     );
 
@@ -237,7 +241,7 @@ router.get('/wallet', async (req, res) => {
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
-    const filename = `${businessData.name || 'Fidelidad'}-${customerData.full_name || 'Card'}.pkpass`
+    const filename = `${businessData.name || 'Fidelidad'}-${customerName}.pkpass`
       .replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
@@ -246,27 +250,13 @@ router.get('/wallet', async (req, res) => {
 
     res.send(passBuffer);
 
-    console.log('✅ Pass sent to client');
-    console.log('📋 Pass details:', {
-      customer: customerData.full_name,
-      points: loyaltyCard?.current_points ?? 0,
-      stamps: loyaltyCard?.current_stamps ?? 0,
-      business: businessData.name,
-      cardNumber: serialNumber
-    });
+    console.log('✅ Pass sent successfully');
 
   } catch (error) {
     console.error('❌ Error generating wallet pass:', error);
-
-    if (error.message) console.error('Error message:', error.message);
-    if (error.stack && process.env.NODE_ENV !== 'production') {
-      console.error('Stack trace:', error.stack);
-    }
-
     res.status(500).json({
       error: 'Failed to generate wallet pass',
-      details: error.message,
-      ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
+      details: error.message
     });
   }
 });
