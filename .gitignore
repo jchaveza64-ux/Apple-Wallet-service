@@ -4,7 +4,7 @@ node_modules/
 # Environment variables
 .env
 
-# Certificates (NUNCA subir a git)
+# Certificates (temporalmente en repo para Render deployment)
 certificates/*.pem
 certificates/*.p12
 certificates/*.key
