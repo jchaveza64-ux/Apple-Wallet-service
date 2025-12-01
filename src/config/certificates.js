@@ -25,7 +25,7 @@ class CertificateManager {
     try {
       // Verificar si existen archivos locales
       const hasLocalCerts = await this.checkLocalCertificates();
-
+      
       if (!hasLocalCerts) {
         console.log('Local certificates not found, checking environment variables...');
         await this.loadCertificatesFromEnv();
@@ -66,28 +66,28 @@ class CertificateManager {
    */
   async loadCertificatesFromEnv() {
     const certMapping = {
-      'CERT_WWDR_BASE64': 'wwdr.pem',
-      'CERT_SIGNER_BASE64': 'signerCert.pem',
-      'CERT_SIGNER_KEY_BASE64': 'signerKey.pem',
-      'CERT_PUSH_BASE64': 'pushCert.pem',
-      'CERT_PUSH_KEY_BASE64': 'pushKey.pem'
+      'CERT_WWDR': 'wwdr.pem',
+      'CERT_SIGNER': 'signerCert.pem',
+      'CERT_SIGNER_KEY': 'signerKey.pem',
+      'CERT_PUSH': 'pushCert.pem',
+      'CERT_PUSH_KEY': 'pushKey.pem'
     };
 
     let loaded = 0;
 
     for (const [envVar, fileName] of Object.entries(certMapping)) {
       const base64Cert = process.env[envVar];
-
+      
       if (base64Cert) {
         try {
           // Decodificar de base64
           const certContent = Buffer.from(base64Cert, 'base64').toString('utf8');
-
+          
           // Guardar en el directorio de certificados
           const filePath = path.join(this.certificatesPath, fileName);
           await fs.mkdir(this.certificatesPath, { recursive: true });
           await fs.writeFile(filePath, certContent);
-
+          
           console.log(`✅ Loaded ${fileName} from environment variable`);
           loaded++;
         } catch (error) {
