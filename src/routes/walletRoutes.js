@@ -4,8 +4,9 @@ import { PKPass } from 'passkit-generator';
 import certificateManager from '../config/certificates.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
 import https from 'https';
+import fs from 'fs/promises';
+import { createWriteStream } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,46 +14,117 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
- * Descarga una imagen desde URL y la guarda en el template
+ * Descarga una imagen desde una URL y la guarda localmente
  */
-async function downloadImage(url, destPath) {
+async function downloadImage(url, filepath) {
   return new Promise((resolve, reject) => {
-    const file = require('fs').createWriteStream(destPath);
+    const file = createWriteStream(filepath);
     https.get(url, (response) => {
       response.pipe(file);
       file.on('finish', () => {
         file.close();
-        resolve(destPath);
+        resolve(filepath);
       });
     }).on('error', (err) => {
-      require('fs').unlink(destPath, () => {});
+      fs.unlink(filepath);
       reject(err);
     });
   });
 }
 
 /**
- * Procesa template de valores dinámicos
+ * Convierte color hex a formato RGB para Apple Wallet
  */
-function processTemplate(template, data) {
-  if (!template) return '';
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return 'rgb(0, 0, 0)';
+  return `rgb(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)})`;
+}
+
+/**
+ * Genera un template temporal con imágenes descargadas de Supabase
+ */
+async function createDynamicTemplate(appleConfig) {
+  const tempDir = path.join(__dirname, '../temp', `pass-${Date.now()}`);
+  const passDir = path.join(tempDir, 'dynamic.pass');
   
-  let result = template;
-  
-  // Reemplazar {{customers.field}}
-  result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => {
-    return data.customer?.[field] || '';
-  });
-  
-  // Reemplazar {{loyalty_cards.field}}
-  result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => {
-    return data.loyaltyCard?.[field] || '';
-  });
-  
-  return result;
+  // Crear directorios
+  await fs.mkdir(passDir, { recursive: true });
+
+  console.log('📥 Downloading images from Supabase...');
+
+  // Descargar imágenes desde Supabase
+  const downloads = [];
+
+  if (appleConfig.logo_url) {
+    downloads.push(
+      downloadImage(appleConfig.logo_url, path.join(passDir, 'logo.png')),
+      downloadImage(appleConfig.logo_url, path.join(passDir, 'logo@2x.png')),
+      downloadImage(appleConfig.logo_url, path.join(passDir, 'logo@3x.png'))
+    );
+  }
+
+  if (appleConfig.icon_url) {
+    downloads.push(
+      downloadImage(appleConfig.icon_url, path.join(passDir, 'icon.png')),
+      downloadImage(appleConfig.icon_url, path.join(passDir, 'icon@2x.png')),
+      downloadImage(appleConfig.icon_url, path.join(passDir, 'icon@3x.png'))
+    );
+  }
+
+  if (appleConfig.strip_image_url) {
+    downloads.push(
+      downloadImage(appleConfig.strip_image_url, path.join(passDir, 'strip.png')),
+      downloadImage(appleConfig.strip_image_url, path.join(passDir, 'strip@2x.png')),
+      downloadImage(appleConfig.strip_image_url, path.join(passDir, 'strip@3x.png'))
+    );
+  }
+
+  await Promise.all(downloads);
+  console.log('✅ Images downloaded successfully');
+
+  // Crear pass.json base
+  const passJson = {
+    formatVersion: 1,
+    passTypeIdentifier: "pass.com.innobizz.fidelityhub",
+    serialNumber: "placeholder",
+    teamIdentifier: "KSBK2MDDF6",
+    organizationName: "Placeholder",
+    description: "Tarjeta de Lealtad",
+    logoText: "Placeholder",
+    backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
+    foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
+    labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
+    generic: {
+      headerFields: [],
+      primaryFields: [],
+      secondaryFields: [],
+      auxiliaryFields: [],
+      backFields: []
+    }
+  };
+
+  await fs.writeFile(path.join(passDir, 'pass.json'), JSON.stringify(passJson, null, 2));
+
+  return passDir;
+}
+
+/**
+ * Limpia el template temporal
+ */
+async function cleanupTemplate(templatePath) {
+  try {
+    const tempDir = path.dirname(templatePath);
+    await fs.rm(tempDir, { recursive: true, force: true });
+    console.log('🧹 Cleaned up temporary template');
+  } catch (error) {
+    console.error('Warning: Could not clean up template:', error.message);
+  }
 }
 
 router.get('/wallet', async (req, res) => {
+  let dynamicTemplate = null;
+
   try {
     const { customerId, businessId, configId } = req.query;
 
@@ -63,7 +135,7 @@ router.get('/wallet', async (req, res) => {
       });
     }
 
-    console.log('📱 Generating pass:', { customerId, businessId, configId });
+    console.log('📱 Generating Apple Wallet pass:', { customerId, businessId, configId });
 
     // ============================================
     // 1. OBTENER DATOS DEL CLIENTE
@@ -96,10 +168,26 @@ router.get('/wallet', async (req, res) => {
       ? customerData.loyalty_cards[0] 
       : customerData.loyalty_cards;
 
-    console.log('✅ Customer:', customerData.full_name);
+    console.log('✅ Customer:', customerData.full_name, '| Points:', loyaltyCard?.current_points);
 
     // ============================================
-    // 2. OBTENER CONFIGURACIÓN COMPLETA
+    // 2. OBTENER NEGOCIO
+    // ============================================
+    const { data: businessData, error: businessError } = await supabase
+      .from('businesses')
+      .select('id, name, description')
+      .eq('id', businessId)
+      .single();
+
+    if (businessError || !businessData) {
+      console.error('❌ Business not found:', businessError);
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    console.log('✅ Business:', businessData.name);
+
+    // ============================================
+    // 3. OBTENER CONFIGURACIÓN
     // ============================================
     const { data: formConfig, error: formError } = await supabase
       .from('form_configurations')
@@ -125,181 +213,119 @@ router.get('/wallet', async (req, res) => {
     }
 
     const appleConfig = passkitConfig.apple_config || {};
-    const memberFields = passkitConfig.member_fields || [];
-    const barcodeConfig = passkitConfig.barcode_config || {};
-
-    console.log('✅ Config loaded:', passkitConfig.config_name);
+    console.log('✅ Config:', passkitConfig.card_display_name);
 
     // ============================================
-    // 3. DESCARGAR IMÁGENES DESDE SUPABASE
+    // 4. CREAR TEMPLATE DINÁMICO CON IMÁGENES DE SUPABASE
     // ============================================
-    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
-    
-    console.log('📥 Downloading images from Supabase...');
-
-    try {
-      // Descargar logo
-      if (appleConfig.logo_url) {
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
-        console.log('✅ Logo downloaded');
-      }
-
-      // Descargar icon
-      if (appleConfig.icon_url) {
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
-        console.log('✅ Icon downloaded');
-      }
-
-      // Descargar strip
-      if (appleConfig.strip_image_url) {
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
-        console.log('✅ Strip downloaded');
-      }
-    } catch (imageError) {
-      console.warn('⚠️ Image download failed:', imageError.message);
-      // Continuar con imágenes por defecto
-    }
+    dynamicTemplate = await createDynamicTemplate(appleConfig);
 
     // ============================================
-    // 4. CREAR EL PASE
+    // 5. CREAR PASE
     // ============================================
     const pass = await PKPass.from({
-      model: templatePath,
+      model: dynamicTemplate,
       certificates: certificateManager.getAllCertificates()
     });
 
-    // Datos básicos
+    // Configurar datos básicos
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     
-    pass.type = 'generic'; // ✅ Cambio a generic para layout como ORIGEN
+    pass.type = 'generic';
     pass.serialNumber = serialNumber;
-    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
-    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
-    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || passkitConfig.card_display_name || '';
+    pass.passTypeIdentifier = process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id;
+    pass.teamIdentifier = process.env.TEAM_IDENTIFIER || appleConfig.team_id;
+    pass.organizationName = appleConfig.organization_name || businessData.name;
+    pass.description = passkitConfig.card_display_name || formConfig.title;
+    pass.logoText = passkitConfig.card_display_name || formConfig.title;
 
     // Colores desde Supabase
-    pass.backgroundColor = appleConfig.background_color || '#121212';
-    pass.foregroundColor = appleConfig.foreground_color || '#ef852e';
-    pass.labelColor = appleConfig.label_color || '#FFFFFF';
+    pass.backgroundColor = hexToRgb(appleConfig.background_color);
+    pass.foregroundColor = hexToRgb(appleConfig.foreground_color);
+    pass.labelColor = hexToRgb(appleConfig.label_color);
 
     // Web service
     pass.webServiceURL = process.env.BASE_URL || '';
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
-    console.log('🎨 Colors applied:', {
-      background: pass.backgroundColor,
-      foreground: pass.foregroundColor,
-      label: pass.labelColor
-    });
-
     // ============================================
-    // 5. CAMPOS DINÁMICOS DESDE member_fields
+    // 6. CAMPOS - Layout estilo ORIGEN
     // ============================================
     
-    const templateData = {
-      customer: {
-        full_name: customerData.full_name,
-        email: customerData.email,
-        phone: customerData.phone
-      },
-      loyaltyCard: {
-        current_points: loyaltyCard?.current_points || 0,
-        current_stamps: loyaltyCard?.current_stamps || 0,
-        card_number: serialNumber
-      }
-    };
-
-    // Procesar member_fields
-    memberFields.forEach(field => {
-      const value = processTemplate(field.valueTemplate, templateData);
-      
-      const fieldData = {
-        key: field.key,
-        label: field.label,
-        value: field.key.includes('points') ? Number(value) : value
-      };
-
-      switch (field.position) {
-        case 'primary':
-          pass.primaryFields.push(fieldData);
-          break;
-        case 'secondary':
-          pass.secondaryFields.push(fieldData);
-          break;
-        case 'auxiliary':
-          pass.auxiliaryFields.push(fieldData);
-          break;
-        case 'header':
-          pass.headerFields.push(fieldData);
-          break;
-      }
+    // Primary field - Nombre
+    pass.primaryFields.push({
+      key: 'name',
+      label: 'NOMBRE',
+      value: customerData.full_name || 'Cliente',
+      textAlignment: 'PKTextAlignmentCenter'
     });
 
-    console.log('✅ Fields configured from member_fields');
-
-    // ============================================
-    // 6. BARCODE DESDE barcode_config
-    // ============================================
-    
-    const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
-    
-    pass.barcodes = [{
-      format: barcodeConfig.format || 'PKBarcodeFormatQR',
-      message: barcodeMessage || customerId,
-      messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
-      altText: barcodeConfig.alt_text || serialNumber
-    }];
-
-    console.log('✅ Barcode configured');
-
-    // ============================================
-    // 7. BACK FIELDS
-    // ============================================
-    
-    pass.backFields.push({
-      key: 'email',
-      label: 'Email',
-      value: customerData.email || 'No proporcionado'
+    // Secondary field - Puntos
+    pass.secondaryFields.push({
+      key: 'points',
+      label: 'PUNTOS',
+      value: Number(loyaltyCard?.current_points ?? 0),
+      textAlignment: 'PKTextAlignmentCenter'
     });
 
-    pass.backFields.push({
-      key: 'phone',
-      label: 'Teléfono',
-      value: customerData.phone || 'No proporcionado'
+    // Back fields
+    pass.backFields.push({ 
+      key: 'email', 
+      label: 'Email', 
+      value: customerData.email || 'No proporcionado' 
     });
-
+    
+    pass.backFields.push({ 
+      key: 'phone', 
+      label: 'Teléfono', 
+      value: customerData.phone || 'No proporcionado' 
+    });
+    
     pass.backFields.push({
       key: 'member_since',
       label: 'Miembro desde',
-      value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+      value: new Date(customerData.created_at).toLocaleDateString('es-ES', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
       })
     });
-
+    
+    pass.backFields.push({ 
+      key: 'card_number', 
+      label: 'Número de tarjeta', 
+      value: serialNumber 
+    });
+    
     pass.backFields.push({
-      key: 'card_number',
-      label: 'Número de tarjeta',
-      value: serialNumber
+      key: 'business_info',
+      label: 'Acerca de',
+      value: `Tarjeta de fidelidad de ${businessData.name}. ${businessData.description || ''}`
+    });
+    
+    pass.backFields.push({ 
+      key: 'terms', 
+      label: 'Términos', 
+      value: 'Los puntos no caducan.' 
     });
 
+    // QR
+    pass.barcodes = [{
+      format: 'PKBarcodeFormatQR',
+      message: customerId,
+      messageEncoding: 'iso-8859-1',
+      altText: serialNumber
+    }];
+
+    console.log('🔨 Pass configured with Supabase data (generic type)');
+
     // ============================================
-    // 8. GENERAR Y ENVIAR
+    // 7. GENERAR Y ENVIAR
     // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
-    const filename = `${passkitConfig.config_name}-${customerData.full_name}.pkpass`
-      .replace(/[^a-zA-Z0-9-]/g, '_');
+    const filename = `${businessData.name}-${customerData.full_name}.pkpass`.replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -309,8 +335,16 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Pass sent successfully');
 
+    // Limpiar template temporal
+    await cleanupTemplate(dynamicTemplate);
+
   } catch (error) {
     console.error('❌ Error:', error);
+    
+    if (dynamicTemplate) {
+      await cleanupTemplate(dynamicTemplate);
+    }
+
     res.status(500).json({
       error: 'Failed to generate pass',
       details: error.message
