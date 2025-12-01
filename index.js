@@ -1,11 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import passRoutes from './routes/passRoutes.js';
-import webhookRoutes from './routes/webhookRoutes.js';
-import applePassRoutes from './routes/applePassRoutes.js';
-import walletRoutes from './routes/walletRoutes.js';
-import certificateManager from './config/certificates.js';
+import passRoutes from './src/routes/passRoutes.js';
+import webhookRoutes from './src/routes/webhookRoutes.js';
+import applePassRoutes from './src/routes/applePassRoutes.js';
+import walletRoutes from './src/routes/walletRoutes.js';
+import certificateManager from './src/config/certificates.js';
 
 dotenv.config();
 
@@ -20,7 +20,6 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   credentials: true
 }));
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -30,7 +29,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Root endpoint - Mensaje de bienvenida
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     service: 'Apple Wallet Loyalty Service',
@@ -59,16 +58,15 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
-app.use('/', walletRoutes);              // Endpoint /wallet para generar pases
-app.use('/api/passes', passRoutes);      // API REST para pases
-app.use('/api/webhook', webhookRoutes);  // Webhooks internos
-app.use('/v1', applePassRoutes);         // Apple Wallet web service endpoints
+app.use('/', walletRoutes);
+app.use('/api/passes', passRoutes);
+app.use('/api/webhook', webhookRoutes);
+app.use('/v1', applePassRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err);
   
-  // No enviar stack trace en producción
   const errorResponse = {
     error: err.message || 'Internal Server Error',
     timestamp: new Date().toISOString()
@@ -81,7 +79,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json(errorResponse);
 });
 
-// 404 handler - debe ir al final
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
     error: 'Route not found',
