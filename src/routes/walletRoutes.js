@@ -13,7 +13,7 @@ const router = express.Router();
 /**
  * Endpoint: GET /wallet
  * Genera y descarga un pase de Apple Wallet
- * 
+ *
  * Query params:
  * - customerId: ID del cliente en Supabase
  * - businessId: ID del negocio
@@ -46,9 +46,9 @@ router.get('/wallet', async (req, res) => {
 
     if (customerError || !customer) {
       console.error('❌ Customer not found:', customerError);
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'Customer not found',
-        customerId 
+        customerId
       });
     }
 
@@ -66,9 +66,9 @@ router.get('/wallet', async (req, res) => {
 
     if (configError || !config) {
       console.error('❌ Config not found:', configError);
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'Wallet configuration not found',
-        configId 
+        configId
       });
     }
 
@@ -77,10 +77,10 @@ router.get('/wallet', async (req, res) => {
     // ============================================
     // 4. GENERAR EL PASE CON PASSKIT-GENERATOR
     // ============================================
-    
+
     // Generar serialNumber único
     const serialNumber = `${businessId}-${customerId}`;
-    
+
     // Generar authenticationToken para web service
     const authenticationToken = Buffer.from(
       `${customerId}-${businessId}-${Date.now()}`
@@ -92,28 +92,24 @@ router.get('/wallet', async (req, res) => {
       {
         // Path al template con las imágenes
         model: path.join(__dirname, '../templates/loyalty.pass'),
-        
-        // Certificados para firmar el pase
-        certificates: {
-          wwdr: certificateManager.getCertificatePath('wwdr.pem'),
-          signerCert: certificateManager.getCertificatePath('signerCert.pem'),
-          signerKey: certificateManager.getCertificatePath('signerKey.pem'),
-        }
+
+        // Certificados para firmar el pase (CONTENIDO, no rutas)
+        certificates: certificateManager.getAllCertificates()
       },
       {
         // ============================================
         // DATOS OBLIGATORIOS DEL PASE
         // ============================================
-        
+
         // Identificadores únicos
         serialNumber: serialNumber,
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER,
         teamIdentifier: process.env.TEAM_IDENTIFIER,
-        
+
         // Información básica
         organizationName: config.business_name || process.env.ORGANIZATION_NAME,
         description: config.card_description || 'Tarjeta de Fidelidad',
-        
+
         // Texto del logo (aparece junto al logo)
         logoText: config.logo_text || config.business_name,
 
@@ -224,7 +220,7 @@ router.get('/wallet', async (req, res) => {
     // 5. GENERAR EL BUFFER DEL ARCHIVO .pkpass
     // ============================================
     const passBuffer = pass.getAsBuffer();
-    
+
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
     // ============================================
@@ -236,20 +232,20 @@ router.get('/wallet', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', passBuffer.length);
-    
+
     res.send(passBuffer);
 
     console.log('✅ Pass sent to client');
 
   } catch (error) {
     console.error('❌ Error generating wallet pass:', error);
-    
+
     if (error.message) console.error('Error message:', error.message);
     if (error.stack && process.env.NODE_ENV !== 'production') {
       console.error('Stack trace:', error.stack);
     }
 
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate wallet pass',
       details: error.message,
       ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })

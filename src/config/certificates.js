@@ -7,23 +7,21 @@ const __dirname = path.dirname(__filename);
 
 /**
  * Inicializa certificados desde archivos locales o variables de entorno
- * Útil para deployment en Render donde no podemos subir archivos directamente
  */
 class CertificateManager {
   constructor() {
     this.certificatesPath = path.join(__dirname, '../../certificates');
     this.initialized = false;
+    this.certificates = {};
   }
 
   /**
    * Inicializa certificados
-   * Prioridad: 1) Archivos locales, 2) Variables de entorno (base64)
    */
   async initialize() {
     if (this.initialized) return;
 
     try {
-      // Verificar si existen archivos locales
       const hasLocalCerts = await this.checkLocalCertificates();
       
       if (!hasLocalCerts) {
@@ -31,6 +29,7 @@ class CertificateManager {
         await this.loadCertificatesFromEnv();
       } else {
         console.log('✅ Using local certificate files');
+        await this.loadLocalCertificates();
       }
 
       this.initialized = true;
@@ -44,11 +43,7 @@ class CertificateManager {
    * Verifica si existen certificados locales
    */
   async checkLocalCertificates() {
-    const requiredFiles = [
-      'wwdr.pem',
-      'signerCert.pem',
-      'signerKey.pem'
-    ];
+    const requiredFiles = ['wwdr.pem', 'signerCert.pem', 'signerKey.pem'];
 
     try {
       for (const file of requiredFiles) {
@@ -61,44 +56,51 @@ class CertificateManager {
   }
 
   /**
+   * Carga el contenido de certificados locales en memoria
+   */
+  async loadLocalCertificates() {
+    const certFiles = {
+      wwdr: 'wwdr.pem',
+      signerCert: 'signerCert.pem',
+      signerKey: 'signerKey.pem'
+    };
+
+    for (const [key, fileName] of Object.entries(certFiles)) {
+      const filePath = path.join(this.certificatesPath, fileName);
+      this.certificates[key] = await fs.readFile(filePath, 'utf8');
+      console.log(`✅ Loaded ${fileName} into memory`);
+    }
+  }
+
+  /**
    * Carga certificados desde variables de entorno (base64)
-   * Útil para Render y otros servicios cloud
    */
   async loadCertificatesFromEnv() {
     const certMapping = {
-      'CERT_WWDR': 'wwdr.pem',
-      'CERT_SIGNER': 'signerCert.pem',
-      'CERT_SIGNER_KEY': 'signerKey.pem',
-      'CERT_PUSH': 'pushCert.pem',
-      'CERT_PUSH_KEY': 'pushKey.pem'
+      'CERT_WWDR': 'wwdr',
+      'CERT_SIGNER': 'signerCert',
+      'CERT_SIGNER_KEY': 'signerKey'
     };
 
     let loaded = 0;
 
-    for (const [envVar, fileName] of Object.entries(certMapping)) {
+    for (const [envVar, key] of Object.entries(certMapping)) {
       const base64Cert = process.env[envVar];
       
       if (base64Cert) {
         try {
-          // Decodificar de base64
-          const certContent = Buffer.from(base64Cert, 'base64').toString('utf8');
-          
-          // Guardar en el directorio de certificados
-          const filePath = path.join(this.certificatesPath, fileName);
-          await fs.mkdir(this.certificatesPath, { recursive: true });
-          await fs.writeFile(filePath, certContent);
-          
-          console.log(`✅ Loaded ${fileName} from environment variable`);
+          this.certificates[key] = Buffer.from(base64Cert, 'base64').toString('utf8');
+          console.log(`✅ Loaded ${key} from environment variable`);
           loaded++;
         } catch (error) {
-          console.error(`Error loading ${fileName}:`, error.message);
+          console.error(`Error loading ${key}:`, error.message);
         }
       }
     }
 
     if (loaded < 3) {
       throw new Error(
-        `Only ${loaded}/5 certificates loaded. Required: wwdr.pem, signerCert.pem, signerKey.pem`
+        `Only ${loaded}/3 certificates loaded. Required: wwdr, signerCert, signerKey`
       );
     }
 
@@ -106,32 +108,38 @@ class CertificateManager {
   }
 
   /**
-   * Obtiene la ruta de un certificado
+   * Obtiene el contenido de un certificado
    */
-  getCertificatePath(certName) {
-    return path.join(this.certificatesPath, certName);
+  getCertificate(certName) {
+    if (!this.certificates[certName]) {
+      throw new Error(`Certificate ${certName} not loaded`);
+    }
+    return this.certificates[certName];
   }
 
   /**
-   * Verifica que todos los certificados requeridos existen
+   * Obtiene todos los certificados en el formato que passkit-generator espera
    */
-  async validateCertificates() {
-    const required = ['wwdr.pem', 'signerCert.pem', 'signerKey.pem'];
-    const missing = [];
+  getAllCertificates() {
+    return {
+      wwdr: this.certificates.wwdr,
+      signerCert: this.certificates.signerCert,
+      signerKey: this.certificates.signerKey
+    };
+  }
 
-    for (const cert of required) {
-      try {
-        await fs.access(this.getCertificatePath(cert));
-      } catch {
-        missing.push(cert);
-      }
-    }
+  /**
+   * Verifica que todos los certificados requeridos están cargados
+   */
+  validateCertificates() {
+    const required = ['wwdr', 'signerCert', 'signerKey'];
+    const missing = required.filter(cert => !this.certificates[cert]);
 
     if (missing.length > 0) {
       throw new Error(`Missing certificates: ${missing.join(', ')}`);
     }
 
-    console.log('✅ All required certificates are present');
+    console.log('✅ All required certificates are loaded');
     return true;
   }
 }
