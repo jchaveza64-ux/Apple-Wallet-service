@@ -28,7 +28,7 @@ router.get('/wallet', async (req, res) => {
     console.log('📱 Generating Apple Wallet pass:', { customerId, businessId, configId });
 
     // ============================================
-    // 1. OBTENER DATOS COMPLETOS DEL CLIENTE CON PUNTOS
+    // 1. OBTENER DATOS DEL CLIENTE CON PUNTOS
     // ============================================
     const { data: customerData, error: customerError } = await supabase
       .from('customers')
@@ -61,48 +61,69 @@ router.get('/wallet', async (req, res) => {
     console.log('📊 Customer points:', customerData.loyalty_cards?.[0]?.current_points || 0);
 
     // ============================================
-    // 2. OBTENER CONFIGURACIÓN COMPLETA
+    // 2. OBTENER DATOS DEL NEGOCIO
     // ============================================
-    const { data: configData, error: configError } = await supabase
+    const { data: businessData, error: businessError } = await supabase
+      .from('businesses')
+      .select('id, name, description, logo_url')
+      .eq('id', businessId)
+      .single();
+
+    if (businessError || !businessData) {
+      console.error('❌ Business not found:', businessError);
+      return res.status(404).json({
+        error: 'Business not found',
+        businessId
+      });
+    }
+
+    console.log('✅ Business found:', businessData.name);
+
+    // ============================================
+    // 3. OBTENER CONFIGURACIÓN DEL FORMULARIO
+    // ============================================
+    const { data: formConfig, error: formError } = await supabase
       .from('form_configurations')
-      .select(`
-        id,
-        title,
-        business_id,
-        businesses (
-          name,
-          description
-        ),
-        passkit_configs (
-          card_display_name,
-          apple_config,
-          member_fields,
-          barcode_config,
-          custom_fields
-        )
-      `)
+      .select('*')
       .eq('id', configId)
       .eq('business_id', businessId)
       .single();
 
-    if (configError || !configData) {
-      console.error('❌ Config not found:', configError);
+    if (formError || !formConfig) {
+      console.error('❌ Form config not found:', formError);
       return res.status(404).json({
-        error: 'Wallet configuration not found',
+        error: 'Form configuration not found',
         configId
       });
     }
 
-    console.log('✅ Config found for business:', configData.businesses?.name);
+    console.log('✅ Form config found:', formConfig.title);
+
+    // ============================================
+    // 4. OBTENER CONFIGURACIÓN DE PASSKIT
+    // ============================================
+    const { data: passkitConfig, error: passkitError } = await supabase
+      .from('passkit_configs')
+      .select('*')
+      .eq('id', formConfig.passkit_config_id)
+      .single();
+
+    if (passkitError || !passkitConfig) {
+      console.error('❌ PassKit config not found:', passkitError);
+      return res.status(404).json({
+        error: 'PassKit configuration not found',
+        passkitConfigId: formConfig.passkit_config_id
+      });
+    }
+
+    console.log('✅ PassKit config found:', passkitConfig.card_display_name);
 
     // Extraer datos
-    const business = configData.businesses;
-    const passkitConfig = configData.passkit_configs;
-    const appleConfig = passkitConfig?.apple_config || {};
+    const appleConfig = passkitConfig.apple_config || {};
     const loyaltyCard = customerData.loyalty_cards?.[0] || {};
 
     // ============================================
-    // 3. GENERAR EL PASE CON PASSKIT-GENERATOR
+    // 5. GENERAR EL PASE CON PASSKIT-GENERATOR
     // ============================================
 
     const serialNumber = loyaltyCard.card_number || `${businessId}-${customerId}`;
@@ -125,9 +146,9 @@ router.get('/wallet', async (req, res) => {
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id,
         teamIdentifier: process.env.TEAM_IDENTIFIER || appleConfig.team_id,
 
-        organizationName: appleConfig.organization_name || business?.name || 'Fidelity Hub',
-        description: passkitConfig?.card_display_name || configData.title || 'Tarjeta de Fidelidad',
-        logoText: passkitConfig?.card_display_name || configData.title,
+        organizationName: appleConfig.organization_name || businessData.name || 'Fidelity Hub',
+        description: passkitConfig.card_display_name || formConfig.title || 'Tarjeta de Fidelidad',
+        logoText: passkitConfig.card_display_name || formConfig.title,
 
         // ============================================
         // COLORES DESDE apple_config
@@ -193,7 +214,7 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'business_info',
               label: 'Acerca de',
-              value: `Tarjeta de fidelidad de ${business?.name || 'nuestro negocio'}. ${business?.description || ''}`
+              value: `Tarjeta de fidelidad de ${businessData.name}. ${businessData.description || ''}`
             },
             {
               key: 'terms',
@@ -230,12 +251,12 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass created successfully');
 
     // ============================================
-    // 4. GENERAR Y ENVIAR EL ARCHIVO
+    // 6. GENERAR Y ENVIAR EL ARCHIVO
     // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
-    const filename = `${business?.name || 'Fidelidad'}-${customerData.full_name || 'Card'}.pkpass`
+    const filename = `${businessData.name || 'Fidelidad'}-${customerData.full_name || 'Card'}.pkpass`
       .replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
@@ -248,7 +269,7 @@ router.get('/wallet', async (req, res) => {
     console.log('📋 Pass details:', {
       customer: customerData.full_name,
       points: loyaltyCard.current_points,
-      business: business?.name,
+      business: businessData.name,
       cardNumber: serialNumber
     });
 
