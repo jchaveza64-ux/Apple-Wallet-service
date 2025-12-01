@@ -1,65 +1,19 @@
-{
+﻿{
   "formatVersion": 1,
   "passTypeIdentifier": "pass.com.innobizz.fidelityhub",
-  "serialNumber": "TEST-12345",
+  "serialNumber": "placeholder",
   "teamIdentifier": "KSBK2MDDF6",
-  "organizationName": "Café Café",
-  "description": "Tarjeta de Fidelidad",
-  "logoText": "CLUB OLE",
+  "organizationName": "Placeholder",
+  "description": "Tarjeta de Lealtad",
+  "logoText": "Mi Programa de Lealtad",
   "backgroundColor": "rgb(33, 150, 243)",
   "foregroundColor": "rgb(255, 255, 255)",
   "labelColor": "rgb(255, 255, 255)",
   "storeCard": {
-    "primaryFields": [
-      {
-        "key": "points",
-        "label": "PUNTOS",
-        "value": 100
-      }
-    ],
-    "secondaryFields": [
-      {
-        "key": "name",
-        "label": "Titular",
-        "value": "PRUEBA HARDCODED"
-      },
-      {
-        "key": "member_since",
-        "label": "Miembro desde",
-        "value": "dic 2025"
-      }
-    ],
-    "auxiliaryFields": [
-      {
-        "key": "card_number",
-        "label": "Tarjeta",
-        "value": "TEST-CARD-001"
-      }
-    ],
-    "backFields": [
-      {
-        "key": "email",
-        "label": "Email",
-        "value": "test@example.com"
-      },
-      {
-        "key": "phone",
-        "label": "Teléfono",
-        "value": "+51 999 999 999"
-      },
-      {
-        "key": "info",
-        "label": "Información",
-        "value": "Este es un pase de prueba con datos hardcodeados."
-      }
-    ]
-  },
-  "barcodes": [
-    {
-      "format": "PKBarcodeFormatQR",
-      "message": "TEST-QR-CODE",
-      "messageEncoding": "iso-8859-1",
-      "altText": "TEST-001"
-    }
-  ]
+    "headerFields": [],
+    "primaryFields": [],
+    "secondaryFields": [],
+    "auxiliaryFields": [],
+    "backFields": []
+  }
 }

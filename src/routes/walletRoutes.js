@@ -24,7 +24,7 @@ router.get('/wallet', async (req, res) => {
     console.log('📱 Generating Apple Wallet pass:', { customerId, businessId, configId });
 
     // ============================================
-    // 1. OBTENER DATOS DEL CLIENTE CON PUNTOS
+    // 1. OBTENER DATOS DEL CLIENTE
     // ============================================
     const { data: customerData, error: customerError } = await supabase
       .from('customers')
@@ -47,41 +47,34 @@ router.get('/wallet', async (req, res) => {
 
     if (customerError || !customerData) {
       console.error('❌ Customer not found:', customerError);
-      return res.status(404).json({
-        error: 'Customer not found',
-        customerId
-      });
+      return res.status(404).json({ error: 'Customer not found', customerId });
     }
-
-    console.log('✅ Customer found:', customerData.full_name);
 
     const loyaltyCard = Array.isArray(customerData.loyalty_cards) 
       ? customerData.loyalty_cards[0] 
       : customerData.loyalty_cards;
 
-    console.log('📊 Loyalty card data:', loyaltyCard);
+    console.log('✅ Customer:', customerData.full_name);
+    console.log('📊 Points:', loyaltyCard?.current_points);
 
     // ============================================
     // 2. OBTENER DATOS DEL NEGOCIO
     // ============================================
     const { data: businessData, error: businessError } = await supabase
       .from('businesses')
-      .select('id, name, description, logo_url')
+      .select('id, name, description')
       .eq('id', businessId)
       .single();
 
     if (businessError || !businessData) {
       console.error('❌ Business not found:', businessError);
-      return res.status(404).json({
-        error: 'Business not found',
-        businessId
-      });
+      return res.status(404).json({ error: 'Business not found', businessId });
     }
 
-    console.log('✅ Business found:', businessData.name);
+    console.log('✅ Business:', businessData.name);
 
     // ============================================
-    // 3. OBTENER CONFIGURACIÓN DEL FORMULARIO
+    // 3. OBTENER CONFIGURACIÓN
     // ============================================
     const { data: formConfig, error: formError } = await supabase
       .from('form_configurations')
@@ -91,18 +84,10 @@ router.get('/wallet', async (req, res) => {
       .single();
 
     if (formError || !formConfig) {
-      console.error('❌ Form config not found:', formError);
-      return res.status(404).json({
-        error: 'Form configuration not found',
-        configId
-      });
+      console.error('❌ Config not found:', formError);
+      return res.status(404).json({ error: 'Config not found', configId });
     }
 
-    console.log('✅ Form config found:', formConfig.title);
-
-    // ============================================
-    // 4. OBTENER CONFIGURACIÓN DE PASSKIT
-    // ============================================
     const { data: passkitConfig, error: passkitError } = await supabase
       .from('passkit_configs')
       .select('*')
@@ -111,137 +96,121 @@ router.get('/wallet', async (req, res) => {
 
     if (passkitError || !passkitConfig) {
       console.error('❌ PassKit config not found:', passkitError);
-      return res.status(404).json({
-        error: 'PassKit configuration not found',
-        passkitConfigId: formConfig.passkit_config_id
-      });
+      return res.status(404).json({ error: 'PassKit config not found' });
     }
-
-    console.log('✅ PassKit config found:', passkitConfig.card_display_name);
 
     const appleConfig = passkitConfig.apple_config || {};
 
-    // ============================================
-    // 5. PREPARAR DATOS DEL PASE
-    // ============================================
-    const points = Number(loyaltyCard?.current_points ?? 0);
-    const serialNumber = String(loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase());
-    const customerName = String(customerData.full_name || 'Cliente');
-    const customerEmail = String(customerData.email || 'No proporcionado');
-    const customerPhone = String(customerData.phone || 'No proporcionado');
-    
-    const memberSince = new Date(customerData.created_at).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'short'
-    });
-
-    const authenticationToken = Buffer.from(
-      `${customerId}-${businessId}-${Date.now()}`
-    ).toString('base64');
-
-    console.log('🔨 Creating pass with data:', {
-      points,
-      customerName,
-      serialNumber,
-      memberSince
-    });
+    console.log('✅ Config:', passkitConfig.card_display_name);
 
     // ============================================
-    // 6. GENERAR EL PASE
+    // 4. CREAR EL PASE BASE
     // ============================================
     const pass = await PKPass.from(
       {
         model: path.join(__dirname, '../templates/loyalty.pass'),
         certificates: certificateManager.getAllCertificates()
-      },
-      {
-        serialNumber: serialNumber,
-        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id,
-        teamIdentifier: process.env.TEAM_IDENTIFIER || appleConfig.team_id,
-        organizationName: String(appleConfig.organization_name || businessData.name || 'Fidelity Hub'),
-        description: String(passkitConfig.card_display_name || formConfig.title || 'Tarjeta de Fidelidad'),
-        logoText: String(passkitConfig.card_display_name || formConfig.title),
-        backgroundColor: String(appleConfig.background_color || 'rgb(33, 150, 243)'),
-        foregroundColor: String(appleConfig.foreground_color || 'rgb(255, 255, 255)'),
-        labelColor: String(appleConfig.label_color || 'rgb(255, 255, 255)'),
-        webServiceURL: String(process.env.BASE_URL || ''),
-        authenticationToken: authenticationToken,
-        
-        storeCard: {
-          primaryFields: [
-            {
-              key: 'points',
-              label: 'PUNTOS',
-              value: points,
-              textAlignment: 'PKTextAlignmentCenter'
-            }
-          ],
-
-          secondaryFields: [
-            {
-              key: 'name',
-              label: 'Titular',
-              value: customerName,
-              textAlignment: 'PKTextAlignmentLeft'
-            },
-            {
-              key: 'member_since',
-              label: 'Miembro desde',
-              value: memberSince,
-              textAlignment: 'PKTextAlignmentRight'
-            }
-          ],
-
-          auxiliaryFields: [
-            {
-              key: 'card_number',
-              label: 'Tarjeta',
-              value: serialNumber,
-              textAlignment: 'PKTextAlignmentCenter'
-            }
-          ],
-
-          backFields: [
-            {
-              key: 'email',
-              label: 'Email',
-              value: customerEmail
-            },
-            {
-              key: 'phone',
-              label: 'Teléfono',
-              value: customerPhone
-            },
-            {
-              key: 'business_info',
-              label: 'Acerca de',
-              value: `Tarjeta de fidelidad de ${businessData.name}. ${businessData.description || ''}`
-            },
-            {
-              key: 'terms',
-              label: 'Términos y Condiciones',
-              value: 'Los puntos no caducan. Consulta el catálogo de recompensas.'
-            }
-          ]
-        },
-
-        barcodes: [
-          {
-            format: 'PKBarcodeFormatQR',
-            message: customerId,
-            messageEncoding: 'iso-8859-1',
-            altText: serialNumber
-          }
-        ]
       }
     );
 
-    console.log('✅ Pass created successfully');
+    // ============================================
+    // 5. MODIFICAR CAMPOS DEL PASE
+    // ============================================
+    
+    // Datos básicos
+    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+    pass.serialNumber = serialNumber;
+    pass.passTypeIdentifier = process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id;
+    pass.teamIdentifier = process.env.TEAM_IDENTIFIER || appleConfig.team_id;
+    pass.organizationName = appleConfig.organization_name || businessData.name;
+    pass.description = passkitConfig.card_display_name || formConfig.title;
+    pass.logoText = passkitConfig.card_display_name || formConfig.title;
 
+    // Colores
+    pass.backgroundColor = appleConfig.background_color || 'rgb(33, 150, 243)';
+    pass.foregroundColor = appleConfig.foreground_color || 'rgb(255, 255, 255)';
+    pass.labelColor = appleConfig.label_color || 'rgb(255, 255, 255)';
+
+    // Web service
+    pass.webServiceURL = process.env.BASE_URL || '';
+    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+
+    // ============================================
+    // 6. MODIFICAR CAMPOS DE LA TARJETA
+    // ============================================
+    
+    // Primary field - Puntos
+    pass.primaryFields.push({
+      key: 'points',
+      label: 'PUNTOS',
+      value: Number(loyaltyCard?.current_points ?? 0)
+    });
+
+    // Secondary fields - Nombre y fecha
+    pass.secondaryFields.push({
+      key: 'name',
+      label: 'Titular',
+      value: customerData.full_name || 'Cliente'
+    });
+
+    pass.secondaryFields.push({
+      key: 'member_since',
+      label: 'Miembro desde',
+      value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'short'
+      })
+    });
+
+    // Auxiliary field - Número de tarjeta
+    pass.auxiliaryFields.push({
+      key: 'card_number',
+      label: 'Tarjeta',
+      value: serialNumber
+    });
+
+    // Back fields - Reverso
+    pass.backFields.push({
+      key: 'email',
+      label: 'Email',
+      value: customerData.email || 'No proporcionado'
+    });
+
+    pass.backFields.push({
+      key: 'phone',
+      label: 'Teléfono',
+      value: customerData.phone || 'No proporcionado'
+    });
+
+    pass.backFields.push({
+      key: 'business_info',
+      label: 'Acerca de',
+      value: `Tarjeta de fidelidad de ${businessData.name}. ${businessData.description || ''}`
+    });
+
+    pass.backFields.push({
+      key: 'terms',
+      label: 'Términos y Condiciones',
+      value: 'Los puntos no caducan. Consulta el catálogo de recompensas.'
+    });
+
+    // Barcode - QR
+    pass.barcodes = [{
+      format: 'PKBarcodeFormatQR',
+      message: customerId,
+      messageEncoding: 'iso-8859-1',
+      altText: serialNumber
+    }];
+
+    console.log('🔨 Pass configured with Supabase data');
+
+    // ============================================
+    // 7. GENERAR Y ENVIAR
+    // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
-    const filename = `${businessData.name || 'Fidelidad'}-${customerName}.pkpass`
+    const filename = `${businessData.name}-${customerData.full_name}.pkpass`
       .replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
@@ -250,12 +219,17 @@ router.get('/wallet', async (req, res) => {
 
     res.send(passBuffer);
 
-    console.log('✅ Pass sent successfully');
+    console.log('✅ Pass sent with data:', {
+      customer: customerData.full_name,
+      points: loyaltyCard?.current_points,
+      business: businessData.name,
+      serial: serialNumber
+    });
 
   } catch (error) {
-    console.error('❌ Error generating wallet pass:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({
-      error: 'Failed to generate wallet pass',
+      error: 'Failed to generate pass',
       details: error.message
     });
   }
