@@ -10,10 +10,6 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-/**
- * Endpoint: GET /wallet
- * Genera y descarga un pase de Apple Wallet
- */
 router.get('/wallet', async (req, res) => {
   try {
     const { customerId, businessId, configId } = req.query;
@@ -58,6 +54,9 @@ router.get('/wallet', async (req, res) => {
     }
 
     console.log('✅ Customer found:', customerData.full_name);
+    console.log('🔍 Full customer data:', JSON.stringify(customerData, null, 2));
+    console.log('📊 Loyalty cards array:', customerData.loyalty_cards);
+    console.log('📊 First loyalty card:', customerData.loyalty_cards?.[0]);
     console.log('📊 Customer points:', customerData.loyalty_cards?.[0]?.current_points || 0);
 
     // ============================================
@@ -121,12 +120,15 @@ router.get('/wallet', async (req, res) => {
     // Extraer datos
     const appleConfig = passkitConfig.apple_config || {};
     const loyaltyCard = customerData.loyalty_cards?.[0] || {};
+    
+    console.log('🔍 Loyalty card extracted:', loyaltyCard);
+    console.log('🔍 Points value:', loyaltyCard.current_points);
 
     // ============================================
     // 5. GENERAR EL PASE CON PASSKIT-GENERATOR
     // ============================================
 
-    const serialNumber = loyaltyCard.card_number || `${businessId}-${customerId}`;
+    const serialNumber = loyaltyCard.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     const authenticationToken = Buffer.from(
       `${customerId}-${businessId}-${Date.now()}`
     ).toString('base64');
@@ -139,9 +141,6 @@ router.get('/wallet', async (req, res) => {
         certificates: certificateManager.getAllCertificates()
       },
       {
-        // ============================================
-        // DATOS OBLIGATORIOS
-        // ============================================
         serialNumber: serialNumber,
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id,
         teamIdentifier: process.env.TEAM_IDENTIFIER || appleConfig.team_id,
@@ -150,28 +149,19 @@ router.get('/wallet', async (req, res) => {
         description: passkitConfig.card_display_name || formConfig.title || 'Tarjeta de Fidelidad',
         logoText: passkitConfig.card_display_name || formConfig.title,
 
-        // ============================================
-        // COLORES DESDE apple_config
-        // ============================================
         backgroundColor: appleConfig.background_color || 'rgb(33, 150, 243)',
         foregroundColor: appleConfig.foreground_color || 'rgb(255, 255, 255)',
         labelColor: appleConfig.label_color || 'rgb(255, 255, 255)',
 
-        // ============================================
-        // WEB SERVICE
-        // ============================================
         webServiceURL: process.env.BASE_URL,
         authenticationToken: authenticationToken,
 
-        // ============================================
-        // ESTRUCTURA DE LA TARJETA
-        // ============================================
         storeCard: {
           primaryFields: [
             {
               key: 'points',
               label: 'PUNTOS',
-              value: loyaltyCard.current_points || 0,
+              value: loyaltyCard.current_points ?? 0,
               changeMessage: 'Tus puntos cambiaron a %@'
             }
           ],
@@ -196,7 +186,7 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'card_number',
               label: 'Número de tarjeta',
-              value: serialNumber.slice(0, 16).toUpperCase()
+              value: serialNumber
             }
           ],
 
@@ -204,7 +194,7 @@ router.get('/wallet', async (req, res) => {
             {
               key: 'email',
               label: 'Email',
-              value: customerData.email || ''
+              value: customerData.email || 'No proporcionado'
             },
             {
               key: 'phone',
@@ -224,21 +214,15 @@ router.get('/wallet', async (req, res) => {
           ]
         },
 
-        // ============================================
-        // CÓDIGO QR
-        // ============================================
         barcodes: [
           {
             format: 'PKBarcodeFormatQR',
             message: customerId,
             messageEncoding: 'iso-8859-1',
-            altText: serialNumber.slice(0, 8).toUpperCase()
+            altText: serialNumber
           }
         ],
 
-        // ============================================
-        // INFORMACIÓN ADICIONAL
-        // ============================================
         userInfo: {
           customerId: customerId,
           businessId: businessId,
@@ -250,9 +234,6 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Pass created successfully');
 
-    // ============================================
-    // 6. GENERAR Y ENVIAR EL ARCHIVO
-    // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
@@ -268,7 +249,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent to client');
     console.log('📋 Pass details:', {
       customer: customerData.full_name,
-      points: loyaltyCard.current_points,
+      points: loyaltyCard.current_points ?? 0,
       business: businessData.name,
       cardNumber: serialNumber
     });
