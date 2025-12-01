@@ -13,19 +13,11 @@ const router = express.Router();
 /**
  * Endpoint: GET /wallet
  * Genera y descarga un pase de Apple Wallet
- *
- * Query params:
- * - customerId: ID del cliente en Supabase
- * - businessId: ID del negocio
- * - configId: ID de la configuración del wallet
  */
 router.get('/wallet', async (req, res) => {
   try {
     const { customerId, businessId, configId } = req.query;
 
-    // ============================================
-    // 1. VALIDACIÓN DE PARÁMETROS
-    // ============================================
     if (!customerId || !businessId || !configId) {
       return res.status(400).json({
         error: 'Missing required parameters',
@@ -36,15 +28,28 @@ router.get('/wallet', async (req, res) => {
     console.log('📱 Generating Apple Wallet pass:', { customerId, businessId, configId });
 
     // ============================================
-    // 2. OBTENER DATOS DEL CLIENTE
+    // 1. OBTENER DATOS COMPLETOS DEL CLIENTE CON PUNTOS
     // ============================================
-    const { data: customer, error: customerError } = await supabase
+    const { data: customerData, error: customerError } = await supabase
       .from('customers')
-      .select('*')
+      .select(`
+        id,
+        full_name,
+        email,
+        phone,
+        business_id,
+        created_at,
+        loyalty_cards (
+          current_points,
+          current_stamps,
+          card_number,
+          status
+        )
+      `)
       .eq('id', customerId)
       .single();
 
-    if (customerError || !customer) {
+    if (customerError || !customerData) {
       console.error('❌ Customer not found:', customerError);
       return res.status(404).json({
         error: 'Customer not found',
@@ -52,19 +57,35 @@ router.get('/wallet', async (req, res) => {
       });
     }
 
-    console.log('✅ Customer found:', customer.name);
+    console.log('✅ Customer found:', customerData.full_name);
+    console.log('📊 Customer points:', customerData.loyalty_cards?.[0]?.current_points || 0);
 
     // ============================================
-    // 3. OBTENER CONFIGURACIÓN DEL NEGOCIO
+    // 2. OBTENER CONFIGURACIÓN COMPLETA
     // ============================================
-    const { data: config, error: configError } = await supabase
+    const { data: configData, error: configError } = await supabase
       .from('form_configurations')
-      .select('*')
+      .select(`
+        id,
+        title,
+        business_id,
+        businesses (
+          name,
+          description
+        ),
+        passkit_configs (
+          card_display_name,
+          apple_config,
+          member_fields,
+          barcode_config,
+          custom_fields
+        )
+      `)
       .eq('id', configId)
       .eq('business_id', businessId)
       .single();
 
-    if (configError || !config) {
+    if (configError || !configData) {
       console.error('❌ Config not found:', configError);
       return res.status(404).json({
         error: 'Wallet configuration not found',
@@ -72,16 +93,19 @@ router.get('/wallet', async (req, res) => {
       });
     }
 
-    console.log('✅ Config found for business:', config.business_name);
+    console.log('✅ Config found for business:', configData.businesses?.name);
+
+    // Extraer datos
+    const business = configData.businesses;
+    const passkitConfig = configData.passkit_configs;
+    const appleConfig = passkitConfig?.apple_config || {};
+    const loyaltyCard = customerData.loyalty_cards?.[0] || {};
 
     // ============================================
-    // 4. GENERAR EL PASE CON PASSKIT-GENERATOR
+    // 3. GENERAR EL PASE CON PASSKIT-GENERATOR
     // ============================================
 
-    // Generar serialNumber único
-    const serialNumber = `${businessId}-${customerId}`;
-
-    // Generar authenticationToken para web service
+    const serialNumber = loyaltyCard.card_number || `${businessId}-${customerId}`;
     const authenticationToken = Buffer.from(
       `${customerId}-${businessId}-${Date.now()}`
     ).toString('base64');
@@ -90,126 +114,115 @@ router.get('/wallet', async (req, res) => {
 
     const pass = await PKPass.from(
       {
-        // Path al template con las imágenes
         model: path.join(__dirname, '../templates/loyalty.pass'),
-
-        // Certificados para firmar el pase (CONTENIDO, no rutas)
         certificates: certificateManager.getAllCertificates()
       },
       {
         // ============================================
-        // DATOS OBLIGATORIOS DEL PASE
+        // DATOS OBLIGATORIOS
         // ============================================
-
-        // Identificadores únicos
         serialNumber: serialNumber,
-        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER,
-        teamIdentifier: process.env.TEAM_IDENTIFIER,
+        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || appleConfig.pass_type_id,
+        teamIdentifier: process.env.TEAM_IDENTIFIER || appleConfig.team_id,
 
-        // Información básica
-        organizationName: config.business_name || process.env.ORGANIZATION_NAME,
-        description: config.card_description || 'Tarjeta de Fidelidad',
-
-        // Texto del logo (aparece junto al logo)
-        logoText: config.logo_text || config.business_name,
+        organizationName: appleConfig.organization_name || business?.name || 'Fidelity Hub',
+        description: passkitConfig?.card_display_name || configData.title || 'Tarjeta de Fidelidad',
+        logoText: passkitConfig?.card_display_name || configData.title,
 
         // ============================================
-        // COLORES PERSONALIZADOS
+        // COLORES DESDE apple_config
         // ============================================
-        backgroundColor: config.background_color || 'rgb(33, 150, 243)',
-        foregroundColor: config.foreground_color || 'rgb(255, 255, 255)',
-        labelColor: config.label_color || 'rgb(255, 255, 255)',
+        backgroundColor: appleConfig.background_color || 'rgb(33, 150, 243)',
+        foregroundColor: appleConfig.foreground_color || 'rgb(255, 255, 255)',
+        labelColor: appleConfig.label_color || 'rgb(255, 255, 255)',
 
         // ============================================
-        // WEB SERVICE (para actualizaciones automáticas)
+        // WEB SERVICE
         // ============================================
         webServiceURL: process.env.BASE_URL,
         authenticationToken: authenticationToken,
 
         // ============================================
-        // ESTRUCTURA DE LA TARJETA (storeCard)
+        // ESTRUCTURA DE LA TARJETA
         // ============================================
         storeCard: {
-          // Campo principal - MUY VISIBLE
           primaryFields: [
             {
               key: 'points',
               label: 'PUNTOS',
-              value: customer.points || 0,
+              value: loyaltyCard.current_points || 0,
               changeMessage: 'Tus puntos cambiaron a %@'
             }
           ],
 
-          // Campos secundarios - Debajo del principal
           secondaryFields: [
             {
               key: 'name',
               label: 'Titular',
-              value: customer.name || 'Cliente'
+              value: customerData.full_name || 'Cliente'
             },
             {
               key: 'member_since',
               label: 'Miembro desde',
-              value: new Date(customer.created_at).toLocaleDateString('es-ES', {
+              value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
                 year: 'numeric',
                 month: 'short'
               })
             }
           ],
 
-          // Campos auxiliares - Más pequeños
           auxiliaryFields: [
             {
               key: 'card_number',
               label: 'Número de tarjeta',
-              value: customerId.slice(0, 8).toUpperCase()
+              value: serialNumber.slice(0, 16).toUpperCase()
             }
           ],
 
-          // Campos del reverso - Solo visibles al voltear
           backFields: [
             {
               key: 'email',
               label: 'Email',
-              value: customer.email || ''
+              value: customerData.email || ''
+            },
+            {
+              key: 'phone',
+              label: 'Teléfono',
+              value: customerData.phone || 'No proporcionado'
             },
             {
               key: 'business_info',
               label: 'Acerca de',
-              value: `Tarjeta de fidelidad de ${config.business_name || 'nuestro negocio'}.`
+              value: `Tarjeta de fidelidad de ${business?.name || 'nuestro negocio'}. ${business?.description || ''}`
             },
             {
               key: 'terms',
               label: 'Términos y Condiciones',
               value: 'Los puntos no caducan. Consulta el catálogo de recompensas en nuestra app.'
-            },
-            {
-              key: 'support',
-              label: 'Soporte',
-              value: config.support_email || 'soporte@ejemplo.com'
             }
           ]
         },
 
         // ============================================
-        // CÓDIGO DE BARRAS / QR
+        // CÓDIGO QR
         // ============================================
         barcodes: [
           {
             format: 'PKBarcodeFormatQR',
             message: customerId,
             messageEncoding: 'iso-8859-1',
-            altText: customerId.slice(0, 8).toUpperCase()
+            altText: serialNumber.slice(0, 8).toUpperCase()
           }
         ],
 
         // ============================================
-        // INFORMACIÓN ADICIONAL (opcional)
+        // INFORMACIÓN ADICIONAL
         // ============================================
         userInfo: {
           customerId: customerId,
           businessId: businessId,
-          configId: configId
+          configId: configId,
+          cardNumber: serialNumber
         }
       }
     );
@@ -217,16 +230,12 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass created successfully');
 
     // ============================================
-    // 5. GENERAR EL BUFFER DEL ARCHIVO .pkpass
+    // 4. GENERAR Y ENVIAR EL ARCHIVO
     // ============================================
     const passBuffer = pass.getAsBuffer();
-
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
 
-    // ============================================
-    // 6. ENVIAR EL ARCHIVO AL CLIENTE
-    // ============================================
-    const filename = `${config.business_name || 'Fidelidad'}-${customer.name || 'Card'}.pkpass`
+    const filename = `${business?.name || 'Fidelidad'}-${customerData.full_name || 'Card'}.pkpass`
       .replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
@@ -236,6 +245,12 @@ router.get('/wallet', async (req, res) => {
     res.send(passBuffer);
 
     console.log('✅ Pass sent to client');
+    console.log('📋 Pass details:', {
+      customer: customerData.full_name,
+      points: loyaltyCard.current_points,
+      business: business?.name,
+      cardNumber: serialNumber
+    });
 
   } catch (error) {
     console.error('❌ Error generating wallet pass:', error);
