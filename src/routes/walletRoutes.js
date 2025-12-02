@@ -1,365 +1,203 @@
-import express from 'express';
-import { supabase } from '../config/supabase.js';
-import { PKPass } from 'passkit-generator';
-import certificateManager from '../config/certificates.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
-import https from 'https';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+// walletRoutes.js - VERSIÓN CORRECTA
+const express = require('express');
 const router = express.Router();
+const { PKPass } = require('passkit-generator');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const { createClient } = require('@supabase/supabase-js');
 
-/**
- * Convierte color HEX a formato RGB para Apple Wallet
- */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+// Función para convertir HEX a RGB según formato Apple: rgb(r, g, b)
 function hexToRgb(hex) {
-  if (!hex) return null;
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return null;
   
-  // Remover # si existe
-  hex = hex.replace('#', '');
-  
-  // Convertir a RGB
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
   
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/**
- * Descarga una imagen desde URL y la guarda en el template
- */
-async function downloadImage(url, destPath) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (response) => {
-      const chunks = [];
-      
-      response.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-      
-      response.on('end', async () => {
-        try {
-          const buffer = Buffer.concat(chunks);
-          await fs.writeFile(destPath, buffer);
-          resolve(destPath);
-        } catch (err) {
-          reject(err);
-        }
-      });
-    }).on('error', (err) => {
-      reject(err);
-    });
-  });
-}
-
-/**
- * Procesa template de valores dinámicos
- */
-function processTemplate(template, data) {
-  if (!template) return '';
-  
-  let result = template;
-  
-  // Reemplazar {{customers.field}}
-  result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => {
-    return data.customer?.[field] || '';
-  });
-  
-  // Reemplazar {{loyalty_cards.field}}
-  result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => {
-    return data.loyaltyCard?.[field] || '';
-  });
-  
-  return result;
-}
-
-router.get('/wallet', async (req, res) => {
+// Función para descargar imagen
+async function downloadImage(url) {
   try {
-    const { customerId, businessId, configId } = req.query;
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 10000
+    });
+    return Buffer.from(response.data);
+  } catch (error) {
+    console.error(`❌ Error downloading image from ${url}:`, error.message);
+    throw error;
+  }
+}
 
-    if (!customerId || !businessId || !configId) {
-      return res.status(400).json({
-        error: 'Missing required parameters',
-        required: ['customerId', 'businessId', 'configId']
-      });
+router.post('/wallet', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId es requerido' });
     }
 
-    console.log('📱 Generating pass:', { customerId, businessId, configId });
+    console.log('\n🔍 Procesando solicitud para customer:', customerId);
 
-    // ============================================
-    // 1. OBTENER DATOS DEL CLIENTE
-    // ============================================
-    const { data: customerData, error: customerError } = await supabase
+    // 1. Obtener datos del customer
+    const { data: customer, error: customerError } = await supabase
       .from('customers')
-      .select(`
-        id,
-        full_name,
-        email,
-        phone,
-        business_id,
-        created_at,
-        loyalty_cards (
-          current_points,
-          current_stamps,
-          card_number,
-          status
-        )
-      `)
+      .select('*')
       .eq('id', customerId)
       .single();
 
-    if (customerError || !customerData) {
-      console.error('❌ Customer not found:', customerError);
-      return res.status(404).json({ error: 'Customer not found' });
+    if (customerError || !customer) {
+      console.error('❌ Error obteniendo customer:', customerError);
+      return res.status(404).json({ error: 'Cliente no encontrado' });
     }
 
-    const loyaltyCard = Array.isArray(customerData.loyalty_cards) 
-      ? customerData.loyalty_cards[0] 
-      : customerData.loyalty_cards;
+    console.log('✅ Customer:', customer.name, '| Points:', customer.points);
 
-    console.log('✅ Customer:', customerData.full_name, '| Points:', loyaltyCard?.current_points || 0);
-
-    // ============================================
-    // 2. OBTENER DATOS DEL NEGOCIO
-    // ============================================
-    const { data: businessData, error: businessError } = await supabase
-      .from('businesses')
-      .select('id, name, description')
-      .eq('id', businessId)
-      .single();
-
-    if (businessError || !businessData) {
-      console.error('❌ Business not found:', businessError);
-      return res.status(404).json({ error: 'Business not found' });
-    }
-
-    console.log('✅ Business:', businessData.name);
-
-    // ============================================
-    // 3. OBTENER CONFIGURACIÓN COMPLETA
-    // ============================================
-    const { data: formConfig, error: formError } = await supabase
-      .from('form_configurations')
-      .select('*')
-      .eq('id', configId)
-      .eq('business_id', businessId)
-      .single();
-
-    if (formError || !formConfig) {
-      console.error('❌ Config not found:', formError);
-      return res.status(404).json({ error: 'Config not found' });
-    }
-
-    const { data: passkitConfig, error: passkitError } = await supabase
+    // 2. Obtener passkit_config
+    const { data: config, error: configError } = await supabase
       .from('passkit_configs')
       .select('*')
-      .eq('id', formConfig.passkit_config_id)
+      .eq('id', customer.passkit_config_id)
       .single();
 
-    if (passkitError || !passkitConfig) {
-      console.error('❌ PassKit config not found:', passkitError);
-      return res.status(404).json({ error: 'PassKit config not found' });
+    if (configError || !config) {
+      console.error('❌ Error obteniendo config:', configError);
+      return res.status(404).json({ error: 'Configuración no encontrada' });
     }
 
-    const appleConfig = passkitConfig.apple_config || {};
-    const memberFields = passkitConfig.member_fields || [];
-    const barcodeConfig = passkitConfig.barcode_config || {};
+    console.log('✅ Config:', config.logo_text);
 
-    console.log('✅ Config:', passkitConfig.config_name);
+    // 3. Convertir colores HEX a RGB
+    const rgbColors = {
+      background: hexToRgb(config.background_color),
+      foreground: hexToRgb(config.foreground_color),
+      label: hexToRgb(config.label_color)
+    };
 
-    // ============================================
-    // 4. DESCARGAR IMÁGENES DESDE SUPABASE
-    // ============================================
-    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
+    console.log('🎨 Colors:', rgbColors);
+
+    // 4. Preparar buffers de imágenes
+    const buffers = {};
     
-    console.log('📥 Downloading images from Supabase...');
-
     try {
-      // Descargar logo (requerido por Apple Wallet)
-      if (appleConfig.logo_url) {
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+      // Logo (requerido)
+      if (config.logo_url) {
+        buffers['logo.png'] = await downloadImage(config.logo_url);
+        buffers['logo@2x.png'] = await downloadImage(config.logo_url);
         console.log('✅ Logo downloaded');
       }
 
-      // Descargar icon (REQUERIDO por Apple Wallet)
-      if (appleConfig.icon_url) {
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+      // Icon (requerido por Apple)
+      if (config.icon_url) {
+        buffers['icon.png'] = await downloadImage(config.icon_url);
+        buffers['icon@2x.png'] = await downloadImage(config.icon_url);
         console.log('✅ Icon downloaded');
       }
 
-      // Descargar strip (opcional pero recomendado)
-      if (appleConfig.strip_image_url) {
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+      // Strip image (opcional)
+      if (config.strip_image_url) {
+        buffers['strip.png'] = await downloadImage(config.strip_image_url);
+        buffers['strip@2x.png'] = await downloadImage(config.strip_image_url);
         console.log('✅ Strip downloaded');
       }
-
-      console.log('✅ All images downloaded successfully');
     } catch (imageError) {
-      console.error('❌ Image download failed:', imageError.message);
-      return res.status(500).json({ 
-        error: 'Failed to download images from Supabase',
-        details: imageError.message 
-      });
+      console.error('❌ Error descargando imágenes:', imageError);
+      return res.status(500).json({ error: 'Error descargando assets' });
     }
 
-    // ============================================
-    // 5. CREAR EL PASE
-    // ============================================
-    const pass = await PKPass.from({
-      model: templatePath,
-      certificates: certificateManager.getAllCertificates()
-    });
+    // 5. Preparar rutas de certificados
+    const certPath = path.resolve(__dirname, '../certs');
+    const templatePath = path.resolve(__dirname, '../templates/loyalty.pass');
+    const signerCertPath = path.join(certPath, 'signerCert.pem');
+    const signerKeyPath = path.join(certPath, 'signerKey.pem');
+    const wwdrPath = path.join(certPath, 'wwdr.pem');
 
-    // Datos básicos
-    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
-    
-    pass.type = 'generic';
-    pass.serialNumber = serialNumber;
-    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
-    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
-    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
-    pass.relevantDate = new Date().toISOString();
-
-    // CONVERTIR COLORES HEX A RGB Y APLICAR
-    const bgColor = hexToRgb(appleConfig.background_color) || 'rgb(18, 18, 18)';
-    const fgColor = hexToRgb(appleConfig.foreground_color) || 'rgb(239, 133, 46)';
-    const lblColor = hexToRgb(appleConfig.label_color) || 'rgb(255, 255, 255)';
-    
-    pass.backgroundColor = bgColor;
-    pass.foregroundColor = fgColor;
-    pass.labelColor = lblColor;
-
-    // Web service
-    pass.webServiceURL = process.env.BASE_URL || '';
-    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
-
-    console.log('🎨 Colors applied (converted to RGB):', {
-      background: bgColor,
-      foreground: fgColor,
-      label: lblColor
-    });
-
-    // ============================================
-    // 6. CAMPOS DINÁMICOS DESDE member_fields
-    // ============================================
-    
-    const templateData = {
-      customer: {
-        full_name: customerData.full_name,
-        email: customerData.email,
-        phone: customerData.phone
+    // 6. AQUÍ ESTÁ LA CLAVE: Pasar los colores y props dinámicos como segundo parámetro
+    const pass = await PKPass.from(
+      {
+        model: templatePath,
+        certificates: {
+          wwdr: fs.readFileSync(wwdrPath),
+          signerCert: fs.readFileSync(signerCertPath),
+          signerKey: {
+            keyFile: fs.readFileSync(signerKeyPath),
+            passphrase: process.env.PASS_KEY_PASSPHRASE,
+          },
+        },
       },
-      loyaltyCard: {
-        current_points: loyaltyCard?.current_points || 0,
-        current_stamps: loyaltyCard?.current_stamps || 0,
-        card_number: serialNumber
+      {
+        // PROPS QUE SE MERGEAN CON pass.json
+        serialNumber: customer.id,
+        description: `${config.logo_text} - Tarjeta de Fidelidad`,
+        organizationName: config.organization_name,
+        logoText: config.logo_text,
+        
+        // COLORES EN FORMATO RGB
+        backgroundColor: rgbColors.background,
+        foregroundColor: rgbColors.foreground,
+        labelColor: rgbColors.label,
+        
+        // BARCODE
+        barcodes: [
+          {
+            message: customer.id,
+            format: 'PKBarcodeFormatQR',
+            messageEncoding: 'iso-8859-1',
+          },
+        ],
       }
-    };
+    );
 
-    // Procesar member_fields
-    memberFields.forEach(field => {
-      const value = processTemplate(field.valueTemplate, templateData);
-      
-      const fieldData = {
-        key: field.key,
-        label: field.label,
-        value: field.key.includes('points') ? Number(value) : value
-      };
+    // 7. Agregar imágenes descargadas
+    for (const [fileName, buffer] of Object.entries(buffers)) {
+      pass.addBuffer(fileName, buffer);
+    }
 
-      switch (field.position) {
-        case 'primary':
-          pass.primaryFields.push(fieldData);
-          break;
-        case 'secondary':
-          pass.secondaryFields.push(fieldData);
-          break;
-        case 'auxiliary':
-          pass.auxiliaryFields.push(fieldData);
-          break;
-        case 'header':
-          pass.headerFields.push(fieldData);
-          break;
-      }
+    // 8. Configurar campos del pass
+    pass.primaryFields.push({
+      key: 'points',
+      label: 'PUNTOS',
+      value: customer.points.toString(),
+      textAlignment: 'PKTextAlignmentLeft',
     });
 
-    console.log('✅ Fields configured from member_fields');
-
-    // ============================================
-    // 7. BARCODE DESDE barcode_config
-    // ============================================
-    
-    const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
-    
-    pass.setBarcodes({
-      message: barcodeMessage || customerId,
-      format: barcodeConfig.format || 'PKBarcodeFormatQR',
-      messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
-      altText: barcodeConfig.alt_text || serialNumber
+    pass.primaryFields.push({
+      key: 'member',
+      label: 'AMIG@',
+      value: customer.name,
+      textAlignment: 'PKTextAlignmentRight',
     });
 
-    console.log('✅ Barcode configured');
-
-    // ============================================
-    // 8. NO AGREGAR BACK FIELDS
-    // ============================================
-    // Los backFields se eliminan intencionalmente para mantener el reverso limpio
-
-    console.log('🔨 Pass configured with Supabase data (generic type)');
-
-    // ============================================
-    // 9. GENERAR Y ENVIAR
-    // ============================================
+    // 9. Generar el pass
     const passBuffer = pass.getAsBuffer();
-    console.log(`📦 Pass size: ${passBuffer.length} bytes`);
+    console.log('📦 Pass size:', passBuffer.length, 'bytes');
 
-    const filename = `${passkitConfig.config_name}-${customerData.full_name}.pkpass`
-      .replace(/[^a-zA-Z0-9-]/g, '_');
-
-    res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', passBuffer.length);
+    // 10. Enviar respuesta
+    res.set({
+      'Content-Type': 'application/vnd.apple.pkpass',
+      'Content-Disposition': `attachment; filename=${customer.id}.pkpass`,
+      'Content-Length': passBuffer.length,
+    });
 
     res.send(passBuffer);
-
-    console.log('✅ Pass sent successfully');
-
-    // ============================================
-    // 10. LIMPIAR IMÁGENES TEMPORALES
-    // ============================================
-    try {
-      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
-      console.log('🧹 Cleaned up temporary images');
-    } catch (cleanupError) {
-      // Ignorar errores de limpieza
-    }
+    console.log('✅ Pass sent successfully\n');
 
   } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({
-      error: 'Failed to generate pass',
-      details: error.message
+    console.error('❌ Error general:', error);
+    res.status(500).json({ 
+      error: 'Error generando el pass',
+      details: error.message 
     });
   }
 });
 
-export default router;
+module.exports = router;
