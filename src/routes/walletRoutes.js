@@ -102,7 +102,7 @@ router.get('/wallet', async (req, res) => {
       console.log('✅ Strip downloaded');
     }
 
-    const templatePath = path.resolve(__dirname, '../../templates/loyalty.pass');
+    const templatePath = path.join(process.cwd(), 'templates/loyalty.pass');
     const certs = certificateManager.getAllCertificates();
 
     const pass = await PKPass.from(
