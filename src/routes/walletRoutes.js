@@ -2,7 +2,6 @@ import express from 'express';
 import { PKPass } from 'passkit-generator';
 import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { fileURLToPath } from 'url';
 
@@ -28,14 +27,19 @@ function hexToRgb(hex) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-// Función para descargar imagen
+// Función para descargar imagen usando fetch nativo
 async function downloadImage(url) {
   try {
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 10000
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(10000) // 10 segundos timeout
     });
-    return Buffer.from(response.data);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   } catch (error) {
     console.error(`❌ Error downloading image from ${url}:`, error.message);
     throw error;
