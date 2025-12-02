@@ -1,9 +1,9 @@
 import express from 'express';
 import { PKPass } from 'passkit-generator';
-import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { fileURLToPath } from 'url';
+import certificateManager from '../config/certificates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,20 +102,12 @@ router.get('/wallet', async (req, res) => {
       console.log('✅ Strip downloaded');
     }
 
-    const certPath = path.resolve(__dirname, '../../certs');
     const templatePath = path.resolve(__dirname, '../../templates/loyalty.pass');
 
     const pass = await PKPass.from(
       {
         model: templatePath,
-        certificates: {
-          wwdr: fs.readFileSync(path.join(certPath, 'wwdr.pem')),
-          signerCert: fs.readFileSync(path.join(certPath, 'signerCert.pem')),
-          signerKey: {
-            keyFile: fs.readFileSync(path.join(certPath, 'signerKey.pem')),
-            passphrase: process.env.PASS_KEY_PASSPHRASE,
-          },
-        },
+        certificates: certificateManager.getCertificates(),
       },
       {
         serialNumber: customer.id,
