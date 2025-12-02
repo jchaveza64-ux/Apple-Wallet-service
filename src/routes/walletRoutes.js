@@ -103,11 +103,17 @@ router.get('/wallet', async (req, res) => {
     }
 
     const templatePath = path.resolve(__dirname, '../../templates/loyalty.pass');
+    const certs = certificateManager.getAllCertificates();
 
     const pass = await PKPass.from(
       {
         model: templatePath,
-        certificates: certificateManager.getCertificates(),
+        certificates: {
+          wwdr: certs.wwdr,
+          signerCert: certs.signerCert,
+          signerKey: certs.signerKey,
+          signerKeyPassphrase: process.env.PASS_KEY_PASSPHRASE
+        }
       },
       {
         serialNumber: customer.id,
