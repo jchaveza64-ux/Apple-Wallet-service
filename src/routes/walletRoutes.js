@@ -13,36 +13,29 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
- * Convierte color HEX a formato RGB para Apple Wallet
- */
-function hexToRgb(hex) {
-  if (!hex) return null;
-  
-  hex = hex.replace('#', '');
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-  
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/**
- * Descarga una imagen desde URL y la guarda
+ * Descarga una imagen desde URL y la guarda en el template
  */
 async function downloadImage(url, destPath) {
   return new Promise((resolve, reject) => {
     https.get(url, (response) => {
       const chunks = [];
-      response.on('data', (chunk) => chunks.push(chunk));
+      
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
       response.on('end', async () => {
         try {
-          await fs.writeFile(destPath, Buffer.concat(chunks));
+          const buffer = Buffer.concat(chunks);
+          await fs.writeFile(destPath, buffer);
           resolve(destPath);
         } catch (err) {
           reject(err);
         }
       });
-    }).on('error', reject);
+    }).on('error', (err) => {
+      reject(err);
+    });
   });
 }
 
@@ -51,15 +44,23 @@ async function downloadImage(url, destPath) {
  */
 function processTemplate(template, data) {
   if (!template) return '';
+  
   let result = template;
-  result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => data.customer?.[field] || '');
-  result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => data.loyaltyCard?.[field] || '');
+  
+  // Reemplazar {{customers.field}}
+  result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => {
+    return data.customer?.[field] || '';
+  });
+  
+  // Reemplazar {{loyalty_cards.field}}
+  result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => {
+    return data.loyaltyCard?.[field] || '';
+  });
+  
   return result;
 }
 
 router.get('/wallet', async (req, res) => {
-  const tempDir = path.join(__dirname, '../templates/temp_' + Date.now() + '.pass');
-  
   try {
     const { customerId, businessId, configId } = req.query;
 
@@ -73,13 +74,23 @@ router.get('/wallet', async (req, res) => {
     console.log('📱 Generating pass:', { customerId, businessId, configId });
 
     // ============================================
-    // 1-3. OBTENER TODOS LOS DATOS
+    // 1. OBTENER DATOS DEL CLIENTE
     // ============================================
     const { data: customerData, error: customerError } = await supabase
       .from('customers')
       .select(`
-        id, full_name, email, phone, business_id, created_at,
-        loyalty_cards (current_points, current_stamps, card_number, status)
+        id,
+        full_name,
+        email,
+        phone,
+        business_id,
+        created_at,
+        loyalty_cards (
+          current_points,
+          current_stamps,
+          card_number,
+          status
+        )
       `)
       .eq('id', customerId)
       .single();
@@ -95,6 +106,9 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Customer:', customerData.full_name, '| Points:', loyaltyCard?.current_points || 0);
 
+    // ============================================
+    // 2. OBTENER DATOS DEL NEGOCIO
+    // ============================================
     const { data: businessData, error: businessError } = await supabase
       .from('businesses')
       .select('id, name, description')
@@ -108,6 +122,9 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Business:', businessData.name);
 
+    // ============================================
+    // 3. OBTENER CONFIGURACIÓN COMPLETA
+    // ============================================
     const { data: formConfig, error: formError } = await supabase
       .from('form_configurations')
       .select('*')
@@ -138,85 +155,40 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Config:', passkitConfig.config_name);
 
     // ============================================
-    // 4. CREAR TEMPLATE TEMPORAL CON VALORES CORRECTOS
+    // 4. DESCARGAR IMÁGENES DESDE SUPABASE
     // ============================================
+    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
     
-    // Crear directorio temporal
-    await fs.mkdir(tempDir, { recursive: true });
-    console.log('📁 Temporary directory created:', tempDir);
-
-    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
-    
-    // Convertir colores
-    const bgColor = hexToRgb(appleConfig.background_color) || 'rgb(18, 18, 18)';
-    const fgColor = hexToRgb(appleConfig.foreground_color) || 'rgb(239, 133, 46)';
-    const lblColor = hexToRgb(appleConfig.label_color) || 'rgb(255, 255, 255)';
-
-    // Crear pass.json con valores de Supabase
-    const passJsonContent = {
-      formatVersion: 1,
-      passTypeIdentifier: appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER,
-      serialNumber: serialNumber,
-      teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
-      organizationName: appleConfig.organization_name || passkitConfig.config_name,
-      description: appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad',
-      logoText: appleConfig.logo_text || passkitConfig.config_name || '',
-      backgroundColor: bgColor,
-      foregroundColor: fgColor,
-      labelColor: lblColor,
-      webServiceURL: process.env.BASE_URL || '',
-      authenticationToken: Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64'),
-      relevantDate: new Date().toISOString(),
-      generic: {
-        headerFields: [],
-        primaryFields: [],
-        secondaryFields: [],
-        auxiliaryFields: []
-      }
-    };
-
-    await fs.writeFile(
-      path.join(tempDir, 'pass.json'),
-      JSON.stringify(passJsonContent, null, 2)
-    );
-    
-    // LÍNEA DE DEBUG AGREGADA:
-    console.log('🔍 Generated pass.json:', JSON.stringify(passJsonContent, null, 2));
-    
-    console.log('✅ pass.json created with Supabase data');
-    console.log('🎨 Colors:', { background: bgColor, foreground: fgColor, label: lblColor });
-
-    // ============================================
-    // 5. DESCARGAR IMÁGENES AL TEMPLATE TEMPORAL
-    // ============================================
     console.log('📥 Downloading images from Supabase...');
 
     try {
+      // Descargar logo (requerido por Apple Wallet)
       if (appleConfig.logo_url) {
-        await downloadImage(appleConfig.logo_url, path.join(tempDir, 'logo.png'));
-        await downloadImage(appleConfig.logo_url, path.join(tempDir, 'logo@2x.png'));
-        await downloadImage(appleConfig.logo_url, path.join(tempDir, 'logo@3x.png'));
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
         console.log('✅ Logo downloaded');
       }
 
+      // Descargar icon (REQUERIDO por Apple Wallet)
       if (appleConfig.icon_url) {
-        await downloadImage(appleConfig.icon_url, path.join(tempDir, 'icon.png'));
-        await downloadImage(appleConfig.icon_url, path.join(tempDir, 'icon@2x.png'));
-        await downloadImage(appleConfig.icon_url, path.join(tempDir, 'icon@3x.png'));
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
         console.log('✅ Icon downloaded');
       }
 
+      // Descargar strip (opcional pero recomendado)
       if (appleConfig.strip_image_url) {
-        await downloadImage(appleConfig.strip_image_url, path.join(tempDir, 'strip.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(tempDir, 'strip@2x.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(tempDir, 'strip@3x.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
         console.log('✅ Strip downloaded');
       }
 
       console.log('✅ All images downloaded successfully');
     } catch (imageError) {
       console.error('❌ Image download failed:', imageError.message);
-      await fs.rm(tempDir, { recursive: true, force: true });
       return res.status(500).json({ 
         error: 'Failed to download images from Supabase',
         details: imageError.message 
@@ -224,18 +196,50 @@ router.get('/wallet', async (req, res) => {
     }
 
     // ============================================
-    // 6. CREAR EL PASE DESDE EL TEMPLATE TEMPORAL
+    // 5. CREAR EL PASE
     // ============================================
     const pass = await PKPass.from({
-      model: tempDir,
+      model: templatePath,
       certificates: certificateManager.getAllCertificates()
     });
 
+    // Datos básicos
+    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+    
     pass.type = 'generic';
+    pass.serialNumber = serialNumber;
+    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
+    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
+    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
+    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
+    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
+    pass.relevantDate = new Date().toISOString();
+
+    // Colores desde Supabase - usando el método correcto de passkit-generator
+    if (appleConfig.background_color) {
+      pass.backgroundColor = appleConfig.background_color;
+    }
+    if (appleConfig.foreground_color) {
+      pass.foregroundColor = appleConfig.foreground_color;
+    }
+    if (appleConfig.label_color) {
+      pass.labelColor = appleConfig.label_color;
+    }
+
+    // Web service
+    pass.webServiceURL = process.env.BASE_URL || '';
+    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+
+    console.log('🎨 Colors applied:', {
+      background: pass.backgroundColor,
+      foreground: pass.foregroundColor,
+      label: pass.labelColor
+    });
 
     // ============================================
-    // 7. CAMPOS DINÁMICOS
+    // 6. CAMPOS DINÁMICOS DESDE member_fields
     // ============================================
+    
     const templateData = {
       customer: {
         full_name: customerData.full_name,
@@ -249,8 +253,10 @@ router.get('/wallet', async (req, res) => {
       }
     };
 
+    // Procesar member_fields
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
+      
       const fieldData = {
         key: field.key,
         label: field.label,
@@ -258,18 +264,27 @@ router.get('/wallet', async (req, res) => {
       };
 
       switch (field.position) {
-        case 'primary': pass.primaryFields.push(fieldData); break;
-        case 'secondary': pass.secondaryFields.push(fieldData); break;
-        case 'auxiliary': pass.auxiliaryFields.push(fieldData); break;
-        case 'header': pass.headerFields.push(fieldData); break;
+        case 'primary':
+          pass.primaryFields.push(fieldData);
+          break;
+        case 'secondary':
+          pass.secondaryFields.push(fieldData);
+          break;
+        case 'auxiliary':
+          pass.auxiliaryFields.push(fieldData);
+          break;
+        case 'header':
+          pass.headerFields.push(fieldData);
+          break;
       }
     });
 
     console.log('✅ Fields configured from member_fields');
 
     // ============================================
-    // 8. BARCODE
+    // 7. BARCODE DESDE barcode_config
     // ============================================
+    
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
     
     pass.setBarcodes({
@@ -280,7 +295,13 @@ router.get('/wallet', async (req, res) => {
     });
 
     console.log('✅ Barcode configured');
-    console.log('🔨 Pass configured with Supabase data');
+
+    // ============================================
+    // 8. NO AGREGAR BACK FIELDS
+    // ============================================
+    // Los backFields se eliminan intencionalmente para mantener el reverso limpio
+
+    console.log('🔨 Pass configured with Supabase data (generic type)');
 
     // ============================================
     // 9. GENERAR Y ENVIAR
@@ -300,19 +321,25 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 10. LIMPIAR DIRECTORIO TEMPORAL
+    // 10. LIMPIAR IMÁGENES TEMPORALES
     // ============================================
-    await fs.rm(tempDir, { recursive: true, force: true });
-    console.log('🧹 Cleaned up temporary directory');
+    try {
+      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
+      console.log('🧹 Cleaned up temporary images');
+    } catch (cleanupError) {
+      // Ignorar errores de limpieza
+    }
 
   } catch (error) {
     console.error('❌ Error:', error);
-    
-    // Limpiar directorio temporal en caso de error
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {}
-    
     res.status(500).json({
       error: 'Failed to generate pass',
       details: error.message
