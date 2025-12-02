@@ -213,42 +213,46 @@ router.get('/wallet', async (req, res) => {
     }
 
     // ============================================
-    // 5. CREAR EL PASE
+    // 5. CREAR EL PASE CON OVERRIDES
     // ============================================
-    const pass = await PKPass.from({
-      model: templatePath,
-      certificates: certificateManager.getAllCertificates()
-    });
-
+    
     // Datos básicos
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     
-    pass.type = 'generic';
-    pass.serialNumber = serialNumber;
-    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
-    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
-    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
-    pass.relevantDate = new Date().toISOString();
-
-    // Convertir colores HEX a RGB y aplicar
+    // Convertir colores HEX a RGB
     const bgColor = hexToRgb(appleConfig.background_color) || 'rgb(18, 18, 18)';
     const fgColor = hexToRgb(appleConfig.foreground_color) || 'rgb(239, 133, 46)';
     const lblColor = hexToRgb(appleConfig.label_color) || 'rgb(255, 255, 255)';
 
-    pass.backgroundColor = bgColor;
-    pass.foregroundColor = fgColor;
-    pass.labelColor = lblColor;
+    // CREAR EL PASS CON OVERRIDES
+    const pass = await PKPass.from(
+      {
+        model: templatePath,
+        certificates: certificateManager.getAllCertificates()
+      },
+      {
+        // Overrides - estos SÍ se aplican correctamente
+        serialNumber: serialNumber,
+        passTypeIdentifier: appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER,
+        teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
+        organizationName: appleConfig.organization_name || passkitConfig.config_name,
+        description: appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad',
+        logoText: appleConfig.logo_text || passkitConfig.config_name || '',
+        backgroundColor: bgColor,
+        foregroundColor: fgColor,
+        labelColor: lblColor,
+        webServiceURL: process.env.BASE_URL || '',
+        authenticationToken: Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64'),
+        relevantDate: new Date().toISOString()
+      }
+    );
 
-    // Web service
-    pass.webServiceURL = process.env.BASE_URL || '';
-    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+    pass.type = 'generic';
 
-    console.log('🎨 Colors applied (RGB format):', {
-      background: pass.backgroundColor,
-      foreground: pass.foregroundColor,
-      label: pass.labelColor
+    console.log('🎨 Colors applied via overrides:', {
+      background: bgColor,
+      foreground: fgColor,
+      label: lblColor
     });
 
     // ============================================
@@ -311,15 +315,10 @@ router.get('/wallet', async (req, res) => {
 
     console.log('✅ Barcode configured');
 
-    // ============================================
-    // 8. NO AGREGAR BACK FIELDS
-    // ============================================
-    // Los backFields se omiten para mantener el reverso limpio
-
     console.log('🔨 Pass configured with Supabase data (generic type)');
 
     // ============================================
-    // 9. GENERAR Y ENVIAR
+    // 8. GENERAR Y ENVIAR
     // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
@@ -336,7 +335,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 10. LIMPIAR IMÁGENES TEMPORALES
+    // 9. LIMPIAR IMÁGENES TEMPORALES
     // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
