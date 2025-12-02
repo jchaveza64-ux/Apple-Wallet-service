@@ -13,6 +13,23 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
+ * Convierte color HEX a formato RGB para Apple Wallet
+ */
+function hexToRgb(hex) {
+  if (!hex) return null;
+  
+  // Remover # si existe
+  hex = hex.replace('#', '');
+  
+  // Convertir a RGB
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
  * Descarga una imagen desde URL y la guarda en el template
  */
 async function downloadImage(url, destPath) {
@@ -215,25 +232,23 @@ router.get('/wallet', async (req, res) => {
     pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
     pass.relevantDate = new Date().toISOString();
 
-    // Colores desde Supabase - usando el método correcto de passkit-generator
-    if (appleConfig.background_color) {
-      pass.backgroundColor = appleConfig.background_color;
-    }
-    if (appleConfig.foreground_color) {
-      pass.foregroundColor = appleConfig.foreground_color;
-    }
-    if (appleConfig.label_color) {
-      pass.labelColor = appleConfig.label_color;
-    }
+    // CONVERTIR COLORES HEX A RGB Y APLICAR
+    const bgColor = hexToRgb(appleConfig.background_color) || 'rgb(18, 18, 18)';
+    const fgColor = hexToRgb(appleConfig.foreground_color) || 'rgb(239, 133, 46)';
+    const lblColor = hexToRgb(appleConfig.label_color) || 'rgb(255, 255, 255)';
+    
+    pass.backgroundColor = bgColor;
+    pass.foregroundColor = fgColor;
+    pass.labelColor = lblColor;
 
     // Web service
     pass.webServiceURL = process.env.BASE_URL || '';
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
-    console.log('🎨 Colors applied:', {
-      background: pass.backgroundColor,
-      foreground: pass.foregroundColor,
-      label: pass.labelColor
+    console.log('🎨 Colors applied (converted to RGB):', {
+      background: bgColor,
+      foreground: fgColor,
+      label: lblColor
     });
 
     // ============================================
