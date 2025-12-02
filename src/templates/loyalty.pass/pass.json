@@ -1,14 +1,10 @@
 {
   "formatVersion": 1,
   "passTypeIdentifier": "pass.com.innobizz.fidelityhub",
-  "serialNumber": "placeholder",
+  "serialNumber": "temp",
   "teamIdentifier": "KSBK2MDDF6",
-  "organizationName": "Placeholder",
-  "description": "Tarjeta de Fidelidad",
-  "logoText": "Mi Programa",
-  "backgroundColor": "rgb(33, 150, 243)",
-  "foregroundColor": "rgb(255, 255, 255)",
-  "labelColor": "rgb(255, 255, 255)",
+  "organizationName": "temp",
+  "description": "Loyalty Card",
   "generic": {
     "headerFields": [],
     "primaryFields": [],
