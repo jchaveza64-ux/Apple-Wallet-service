@@ -1,11 +1,15 @@
-// walletRoutes.js - VERSIÓN CORRECTA
-const express = require('express');
+import express from 'express';
+import { PKPass } from 'passkit-generator';
+import fs from 'fs';
+import path from 'path';
+import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const router = express.Router();
-const { PKPass } = require('passkit-generator');
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -121,7 +125,8 @@ router.post('/wallet', async (req, res) => {
     const signerKeyPath = path.join(certPath, 'signerKey.pem');
     const wwdrPath = path.join(certPath, 'wwdr.pem');
 
-    // 6. AQUÍ ESTÁ LA CLAVE: Pasar los colores y props dinámicos como segundo parámetro
+    // 6. CLAVE: Pasar los colores y props dinámicos como segundo parámetro
+    // Según documentación de passkit-generator, estos props se MERGEAN con pass.json
     const pass = await PKPass.from(
       {
         model: templatePath,
@@ -141,7 +146,7 @@ router.post('/wallet', async (req, res) => {
         organizationName: config.organization_name,
         logoText: config.logo_text,
         
-        // COLORES EN FORMATO RGB
+        // COLORES EN FORMATO RGB (Apple requiere: rgb(r, g, b))
         backgroundColor: rgbColors.background,
         foregroundColor: rgbColors.foreground,
         labelColor: rgbColors.label,
@@ -200,4 +205,4 @@ router.post('/wallet', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
