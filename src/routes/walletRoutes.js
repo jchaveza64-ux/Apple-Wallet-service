@@ -196,53 +196,48 @@ router.get('/wallet', async (req, res) => {
     }
 
     // ============================================
-    // 5. MODIFICAR pass.json DINÁMICAMENTE
-    // ============================================
-    const passJsonPath = path.join(templatePath, 'pass.json');
-    const passJsonContent = await fs.readFile(passJsonPath, 'utf-8');
-    const passJson = JSON.parse(passJsonContent);
-
-    // Datos básicos
-    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
-    
-    // Modificar el JSON directamente
-    passJson.serialNumber = serialNumber;
-    passJson.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
-    passJson.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
-    passJson.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    passJson.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    passJson.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
-    
-    // COLORES - Aplicar directamente al JSON
-    passJson.backgroundColor = appleConfig.background_color || '#121212';
-    passJson.foregroundColor = appleConfig.foreground_color || '#ef852e';
-    passJson.labelColor = appleConfig.label_color || '#FFFFFF';
-
-    // Web service
-    passJson.webServiceURL = process.env.BASE_URL || '';
-    passJson.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
-    passJson.relevantDate = new Date().toISOString();
-
-    console.log('🎨 Colors configured in pass.json:', {
-      background: passJson.backgroundColor,
-      foreground: passJson.foregroundColor,
-      label: passJson.labelColor
-    });
-
-    // Escribir el pass.json modificado
-    await fs.writeFile(passJsonPath, JSON.stringify(passJson, null, 2));
-    console.log('✅ pass.json updated with Supabase data');
-
-    // ============================================
-    // 6. CREAR EL PASE
+    // 5. CREAR EL PASE
     // ============================================
     const pass = await PKPass.from({
       model: templatePath,
       certificates: certificateManager.getAllCertificates()
     });
 
+    // Datos básicos
+    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+    
+    pass.type = 'generic';
+    pass.serialNumber = serialNumber;
+    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
+    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
+    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
+    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
+    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
+    pass.relevantDate = new Date().toISOString();
+
+    // Colores desde Supabase - usando el método correcto de passkit-generator
+    if (appleConfig.background_color) {
+      pass.backgroundColor = appleConfig.background_color;
+    }
+    if (appleConfig.foreground_color) {
+      pass.foregroundColor = appleConfig.foreground_color;
+    }
+    if (appleConfig.label_color) {
+      pass.labelColor = appleConfig.label_color;
+    }
+
+    // Web service
+    pass.webServiceURL = process.env.BASE_URL || '';
+    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+
+    console.log('🎨 Colors applied:', {
+      background: pass.backgroundColor,
+      foreground: pass.foregroundColor,
+      label: pass.labelColor
+    });
+
     // ============================================
-    // 7. CAMPOS DINÁMICOS DESDE member_fields
+    // 6. CAMPOS DINÁMICOS DESDE member_fields
     // ============================================
     
     const templateData = {
@@ -287,7 +282,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Fields configured from member_fields');
 
     // ============================================
-    // 8. BARCODE DESDE barcode_config
+    // 7. BARCODE DESDE barcode_config
     // ============================================
     
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
@@ -300,6 +295,11 @@ router.get('/wallet', async (req, res) => {
     });
 
     console.log('✅ Barcode configured');
+
+    // ============================================
+    // 8. NO AGREGAR BACK FIELDS
+    // ============================================
+    // Los backFields se eliminan intencionalmente para mantener el reverso limpio
 
     console.log('🔨 Pass configured with Supabase data (generic type)');
 
@@ -321,13 +321,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 10. RESTAURAR pass.json ORIGINAL
-    // ============================================
-    await fs.writeFile(passJsonPath, passJsonContent);
-    console.log('✅ pass.json restored');
-
-    // ============================================
-    // 11. LIMPIAR IMÁGENES TEMPORALES
+    // 10. LIMPIAR IMÁGENES TEMPORALES
     // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
