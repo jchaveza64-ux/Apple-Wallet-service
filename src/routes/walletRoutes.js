@@ -212,13 +212,19 @@ router.get('/wallet', async (req, res) => {
     pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
     pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
     pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || passkitConfig.card_display_name || '';
+    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
     pass.relevantDate = new Date().toISOString();
 
-    // Colores desde Supabase
-    pass.backgroundColor = appleConfig.background_color || '#121212';
-    pass.foregroundColor = appleConfig.foreground_color || '#ef852e';
-    pass.labelColor = appleConfig.label_color || '#FFFFFF';
+    // Colores desde Supabase - usando el método correcto de passkit-generator
+    if (appleConfig.background_color) {
+      pass.backgroundColor = appleConfig.background_color;
+    }
+    if (appleConfig.foreground_color) {
+      pass.foregroundColor = appleConfig.foreground_color;
+    }
+    if (appleConfig.label_color) {
+      pass.labelColor = appleConfig.label_color;
+    }
 
     // Web service
     pass.webServiceURL = process.env.BASE_URL || '';
@@ -291,36 +297,9 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Barcode configured');
 
     // ============================================
-    // 8. BACK FIELDS
+    // 8. NO AGREGAR BACK FIELDS
     // ============================================
-    
-    pass.backFields.push({
-      key: 'email',
-      label: 'Email',
-      value: customerData.email || 'No proporcionado'
-    });
-
-    pass.backFields.push({
-      key: 'phone',
-      label: 'Teléfono',
-      value: customerData.phone || 'No proporcionado'
-    });
-
-    pass.backFields.push({
-      key: 'member_since',
-      label: 'Miembro desde',
-      value: new Date(customerData.created_at).toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })
-    });
-
-    pass.backFields.push({
-      key: 'card_number',
-      label: 'Número de tarjeta',
-      value: serialNumber
-    });
+    // Los backFields se eliminan intencionalmente para mantener el reverso limpio
 
     console.log('🔨 Pass configured with Supabase data (generic type)');
 
