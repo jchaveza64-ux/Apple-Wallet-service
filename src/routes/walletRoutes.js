@@ -223,9 +223,8 @@ router.get('/wallet', async (req, res) => {
         details: error.message 
       });
     }
-
   } catch (error) {
-    console.error('❌ Error general:', error);
+    console.error('❌ Error general en endpoint:', error);
     res.status(500).json({ 
       error: 'Error generando el pass',
       details: error.message 
@@ -234,9 +233,3 @@ router.get('/wallet', async (req, res) => {
 });
 
 export default router;
-
-
-
-
-
-
