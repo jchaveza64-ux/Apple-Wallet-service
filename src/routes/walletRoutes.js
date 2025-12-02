@@ -102,8 +102,8 @@ router.get('/wallet', async (req, res) => {
       console.log('✅ Strip downloaded');
     }
 
-    const certPath = path.resolve(__dirname, '../certs');
-    const templatePath = path.resolve(__dirname, '../templates/loyalty.pass');
+    const certPath = path.resolve(__dirname, '../../certs');
+    const templatePath = path.resolve(__dirname, '../../templates/loyalty.pass');
 
     const pass = await PKPass.from(
       {
@@ -170,9 +170,3 @@ router.get('/wallet', async (req, res) => {
 });
 
 export default router;
-
-
-
-
-
-
