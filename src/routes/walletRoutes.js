@@ -180,6 +180,9 @@ router.get('/wallet', async (req, res) => {
       JSON.stringify(passJsonContent, null, 2)
     );
     
+    // LÍNEA DE DEBUG AGREGADA:
+    console.log('🔍 Generated pass.json:', JSON.stringify(passJsonContent, null, 2));
+    
     console.log('✅ pass.json created with Supabase data');
     console.log('🎨 Colors:', { background: bgColor, foreground: fgColor, label: lblColor });
 
