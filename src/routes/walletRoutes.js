@@ -31,7 +31,7 @@ function hexToRgb(hex) {
 async function downloadImage(url) {
   try {
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(10000) // 10 segundos timeout
+      signal: AbortSignal.timeout(10000)
     });
     
     if (!response.ok) {
@@ -46,9 +46,9 @@ async function downloadImage(url) {
   }
 }
 
-router.post('/wallet', async (req, res) => {
+router.get('/wallet', async (req, res) => {
   try {
-    const { customerId } = req.body;
+    const { customerId } = req.query;
     
     if (!customerId) {
       return res.status(400).json({ error: 'customerId es requerido' });
@@ -129,8 +129,7 @@ router.post('/wallet', async (req, res) => {
     const signerKeyPath = path.join(certPath, 'signerKey.pem');
     const wwdrPath = path.join(certPath, 'wwdr.pem');
 
-    // 6. CLAVE: Pasar los colores y props dinámicos como segundo parámetro
-    // Según documentación de passkit-generator, estos props se MERGEAN con pass.json
+    // 6. ÚNICO CAMBIO: Pasar colores como segundo parámetro para que se mergeen con pass.json
     const pass = await PKPass.from(
       {
         model: templatePath,
@@ -144,18 +143,13 @@ router.post('/wallet', async (req, res) => {
         },
       },
       {
-        // PROPS QUE SE MERGEAN CON pass.json
         serialNumber: customer.id,
         description: `${config.logo_text} - Tarjeta de Fidelidad`,
         organizationName: config.organization_name,
         logoText: config.logo_text,
-        
-        // COLORES EN FORMATO RGB (Apple requiere: rgb(r, g, b))
         backgroundColor: rgbColors.background,
         foregroundColor: rgbColors.foreground,
         labelColor: rgbColors.label,
-        
-        // BARCODE
         barcodes: [
           {
             message: customer.id,
