@@ -13,6 +13,18 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
+ * Convierte HEX a RGB para Apple Wallet
+ */
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return hex;
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
  * Descarga una imagen desde URL y la guarda en el template
  */
 async function downloadImage(url, destPath) {
@@ -196,34 +208,35 @@ router.get('/wallet', async (req, res) => {
     }
 
     // ============================================
-    // 5. CREAR EL PASE
+    // 5. CREAR EL PASE CON COLORES RGB EN SEGUNDO PARÁMETRO
     // ============================================
-    const pass = await PKPass.from({
-      model: templatePath,
-      certificates: certificateManager.getAllCertificates()
-    });
-
-    // Datos básicos
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
-    
+
+    const pass = await PKPass.from(
+      {
+        model: templatePath,
+        certificates: certificateManager.getAllCertificates()
+      },
+      {
+        serialNumber: serialNumber,
+        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
+        teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
+        organizationName: appleConfig.organization_name || passkitConfig.config_name,
+        description: appleConfig.description || 'Tarjeta de Fidelidad',
+        logoText: appleConfig.logo_text || '',
+        backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
+        foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
+        labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF')
+      }
+    );
+
     pass.type = 'storeCard';
-    pass.serialNumber = serialNumber;
-    pass.passTypeIdentifier = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
-    pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
-    pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    pass.description = appleConfig.description || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || '';
     pass.relevantDate = new Date().toISOString();
 
-    // COLORES EN HEX (Apple acepta HEX directamente según Lovable)
-    pass.backgroundColor = appleConfig.background_color || '#121212';
-    pass.foregroundColor = appleConfig.foreground_color || '#ef852e';
-    pass.labelColor = appleConfig.label_color || '#FFFFFF';
-
     console.log('🎨 Colors applied:', {
-      background: pass.backgroundColor,
-      foreground: pass.foregroundColor,
-      label: pass.labelColor
+      background: hexToRgb(appleConfig.background_color || '#121212'),
+      foreground: hexToRgb(appleConfig.foreground_color || '#ef852e'),
+      label: hexToRgb(appleConfig.label_color || '#FFFFFF')
     });
 
     // Web service
