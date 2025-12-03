@@ -244,7 +244,7 @@ router.get('/wallet', async (req, res) => {
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
     // ============================================
-    // 6. CAMPOS DINÁMICOS DESDE member_fields CON textColor
+    // 6. CAMPOS DINÁMICOS DESDE member_fields (SIN textColor)
     // ============================================
     
     const templateData = {
@@ -268,8 +268,7 @@ router.get('/wallet', async (req, res) => {
         key: field.key,
         label: field.label,
         value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value,
-        textAlignment: field.position === 'primary' ? 'PKTextAlignmentLeft' : 'PKTextAlignmentNatural',
-        ...(field.textColor && { textColor: hexToRgb(field.textColor) })
+        textAlignment: field.position === 'primary' ? 'PKTextAlignmentLeft' : 'PKTextAlignmentNatural'
       };
 
       switch (field.position) {
