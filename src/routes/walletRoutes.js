@@ -78,7 +78,7 @@ function processTemplate(template, data) {
 function getLinkHref(type, url) {
   switch(type) {
     case 'phone':
-      return `tel:${url.replace(/\s/g, '')}`;
+      return `tel:${url.replace(/[^0-9+]/g, '')}`;
     case 'email':
       return `mailto:${url}`;
     case 'address':
@@ -180,7 +180,7 @@ router.get('/wallet', async (req, res) => {
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
     const linksFields = passkitConfig.links_fields || [];
-    const additionalFields = passkitConfig.additional_fields || [];
+    const customFields = passkitConfig.custom_fields || [];
 
     console.log('✅ Config:', passkitConfig.config_name);
 
@@ -294,34 +294,39 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Fields configured in secondaryFields (below strip)');
 
     // ============================================
-    // 7. CONFIGURAR REVERSO (backFields) - USAR SOLO ÍCONOS
+    // 7. CONFIGURAR REVERSO (backFields) - ORDEN: TEXTOS + LINKS
     // ============================================
     
-    // 1. Textos desde additional_fields
-    if (additionalFields && Array.isArray(additionalFields)) {
-      additionalFields.forEach((field, index) => {
-        if (field.enabled && field.text) {
+    // 1️⃣ PRIMERO: Textos desde custom_fields (type === "text")
+    if (customFields && Array.isArray(customFields)) {
+      const backsideTexts = customFields.filter(item => item.type === 'text');
+      
+      backsideTexts.forEach(item => {
+        if (item.content && item.content.text) {
           pass.backFields.push({
-            key: `text_${index}`,
-            label: field.label.toUpperCase(),
-            value: field.text
+            key: item.content.id,
+            label: '',  // Sin label para textos
+            value: item.content.text
           });
         }
       });
     }
 
-    // 2. Links desde links_fields - USAR SOLO ÍCONOS (campo name)
+    // 2️⃣ DESPUÉS: Links desde links_fields
     if (linksFields && Array.isArray(linksFields)) {
-      linksFields
-        .filter(link => link.enabled && link.url)
-        .forEach((link, index) => {
-          pass.backFields.push({
-            key: `link_${index}`,
-            label: link.name,  // 🔥 SOLO EL ÍCONO (ej: 🌐, 📞, ✉️)
-            value: link.url,   // ✅ OBLIGATORIO
-            attributedValue: `<a href="${getLinkHref(link.type, link.url)}">${link.url}</a>`
-          });
+      const activeLinks = linksFields.filter(link => link.enabled);
+      
+      activeLinks.forEach(link => {
+        const href = getLinkHref(link.type, link.url);
+        
+        pass.backFields.push({
+          key: link.id,
+          label: link.name,  // Emoji: 🌐, 📞, ✉️
+          value: link.url,
+          attributedValue: `<a href="${href}">${link.url}</a>`,
+          textAlignment: 'PKTextAlignmentLeft'  // Alineación izquierda
         });
+      });
     }
 
     console.log(`✅ Back fields configured: ${pass.backFields.length} fields`);
