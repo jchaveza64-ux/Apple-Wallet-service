@@ -13,6 +13,18 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
+ * Convierte HEX a RGB para Apple Wallet
+ */
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return hex;
+  const r = parseInt(result[1], 16);
+  const g = parseInt(result[2], 16);
+  const b = parseInt(result[3], 16);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
  * Descarga una imagen desde URL y la guarda en el template
  */
 async function downloadImage(url, destPath) {
@@ -206,35 +218,29 @@ router.get('/wallet', async (req, res) => {
     // Datos básicos
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
     
-    pass.type = 'generic';
+    pass.type = 'storeCard';
     pass.serialNumber = serialNumber;
-    pass.passTypeIdentifier = appleConfig.pass_type_id || process.env.PASS_TYPE_IDENTIFIER;
+    pass.passTypeIdentifier = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
     pass.teamIdentifier = appleConfig.team_id || process.env.TEAM_IDENTIFIER;
     pass.organizationName = appleConfig.organization_name || passkitConfig.config_name;
-    pass.description = appleConfig.description || passkitConfig.card_display_name || 'Tarjeta de Fidelidad';
-    pass.logoText = appleConfig.logo_text || passkitConfig.config_name || '';
+    pass.description = appleConfig.description || 'Tarjeta de Fidelidad';
+    pass.logoText = appleConfig.logo_text || '';
     pass.relevantDate = new Date().toISOString();
 
-    // Colores desde Supabase - usando el método correcto de passkit-generator
-    if (appleConfig.background_color) {
-      pass.backgroundColor = appleConfig.background_color;
-    }
-    if (appleConfig.foreground_color) {
-      pass.foregroundColor = appleConfig.foreground_color;
-    }
-    if (appleConfig.label_color) {
-      pass.labelColor = appleConfig.label_color;
-    }
-
-    // Web service
-    pass.webServiceURL = process.env.BASE_URL || '';
-    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+    // COLORES: Convertir HEX a RGB
+    pass.backgroundColor = hexToRgb(appleConfig.background_color || '#121212');
+    pass.foregroundColor = hexToRgb(appleConfig.foreground_color || '#ef852e');
+    pass.labelColor = hexToRgb(appleConfig.label_color || '#FFFFFF');
 
     console.log('🎨 Colors applied:', {
       background: pass.backgroundColor,
       foreground: pass.foregroundColor,
       label: pass.labelColor
     });
+
+    // Web service
+    pass.webServiceURL = process.env.BASE_URL || '';
+    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
     // ============================================
     // 6. CAMPOS DINÁMICOS DESDE member_fields
@@ -260,7 +266,8 @@ router.get('/wallet', async (req, res) => {
       const fieldData = {
         key: field.key,
         label: field.label,
-        value: field.key.includes('points') ? Number(value) : value
+        value: value,
+        textAlignment: field.position === 'primary' ? 'PKTextAlignmentLeft' : 'PKTextAlignmentNatural'
       };
 
       switch (field.position) {
@@ -291,20 +298,15 @@ router.get('/wallet', async (req, res) => {
       message: barcodeMessage || customerId,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
-      altText: barcodeConfig.alt_text || serialNumber
+      altText: barcodeConfig.alt_text || ''
     });
 
-    console.log('✅ Barcode configured');
+    console.log('✅ Barcode configured:', barcodeConfig.alt_text);
+
+    console.log('🔨 Pass configured with Supabase data (storeCard type)');
 
     // ============================================
-    // 8. NO AGREGAR BACK FIELDS
-    // ============================================
-    // Los backFields se eliminan intencionalmente para mantener el reverso limpio
-
-    console.log('🔨 Pass configured with Supabase data (generic type)');
-
-    // ============================================
-    // 9. GENERAR Y ENVIAR
+    // 8. GENERAR Y ENVIAR
     // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
@@ -321,7 +323,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 10. LIMPIAR IMÁGENES TEMPORALES
+    // 9. LIMPIAR IMÁGENES TEMPORALES
     // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
