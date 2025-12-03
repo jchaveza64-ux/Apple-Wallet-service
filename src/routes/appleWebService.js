@@ -18,19 +18,28 @@ const router = express.Router();
  */
 let apnsProvider = null;
 try {
-  const apnsOptions = {
-    token: {
-      key: process.env.APPLE_APNS_KEY,
-      keyId: process.env.APPLE_APNS_KEY_ID,
-      teamId: process.env.TEAM_IDENTIFIER
-    },
-    production: process.env.NODE_ENV === 'production'
-  };
-  
-  apnsProvider = new apn.Provider(apnsOptions);
-  console.log('✅ APNs provider initialized');
+  // Convertir \n literal a saltos de línea reales
+  const apnsKey = process.env.APPLE_APNS_KEY
+    ? process.env.APPLE_APNS_KEY.replace(/\\n/g, '\n')
+    : null;
+
+  if (!apnsKey || !process.env.APPLE_APNS_KEY_ID || !process.env.TEAM_IDENTIFIER) {
+    console.log('⚠️ APNs credentials not configured - push notifications disabled');
+  } else {
+    const apnsOptions = {
+      token: {
+        key: apnsKey,
+        keyId: process.env.APPLE_APNS_KEY_ID,
+        teamId: process.env.TEAM_IDENTIFIER
+      },
+      production: process.env.NODE_ENV === 'production'
+    };
+    
+    apnsProvider = new apn.Provider(apnsOptions);
+    console.log('✅ APNs provider initialized');
+  }
 } catch (error) {
-  console.error('❌ Failed to initialize APNs:', error);
+  console.error('❌ Failed to initialize APNs:', error.message);
 }
 
 /**
