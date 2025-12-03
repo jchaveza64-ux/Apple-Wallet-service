@@ -263,9 +263,12 @@ router.get('/wallet', async (req, res) => {
       label: hexToRgb(appleConfig.label_color || '#FFFFFF')
     });
 
-    // Web service
-    pass.webServiceURL = process.env.BASE_URL || '';
-    pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
+    // Web service - CORREGIDO
+    pass.webServiceURL = process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com';
+    pass.authenticationToken = serialNumber;  // Simplificado: solo el card_number
+
+    console.log('🌐 WebService configured:', pass.webServiceURL);
+    console.log('🔑 Auth token:', pass.authenticationToken);
 
     // ============================================
     // 6. TODOS LOS CAMPOS VAN EN secondaryFields (IGNORAR position)
