@@ -72,6 +72,22 @@ function processTemplate(template, data) {
   return result;
 }
 
+/**
+ * Obtiene el href correcto según el tipo de link
+ */
+function getLinkHref(type, url) {
+  switch(type) {
+    case 'phone':
+      return `tel:${url.replace(/\s/g, '')}`;
+    case 'email':
+      return `mailto:${url}`;
+    case 'address':
+      return `maps://?q=${encodeURIComponent(url)}`;
+    default:
+      return url.startsWith('http') ? url : `https://${url}`;
+  }
+}
+
 router.get('/wallet', async (req, res) => {
   try {
     const { customerId, businessId, configId } = req.query;
@@ -278,48 +294,34 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Fields configured in secondaryFields (below strip)');
 
     // ============================================
-    // 7. CONFIGURAR REVERSO (backFields) - NUEVA LÓGICA LOVABLE
+    // 7. CONFIGURAR REVERSO (backFields) - USAR SOLO ÍCONOS
     // ============================================
     
-    // 1. Primero agregar textos (additional_fields con position === 'back')
-    const backTexts = additionalFields.filter(f => f.enabled && f.position === 'back');
-    
-    backTexts.forEach((field, index) => {
-      pass.backFields.push({
-        key: field.id || `backtext_${index}`,
-        label: field.label,
-        value: field.value || ''
+    // 1. Textos desde additional_fields
+    if (additionalFields && Array.isArray(additionalFields)) {
+      additionalFields.forEach((field, index) => {
+        if (field.enabled && field.text) {
+          pass.backFields.push({
+            key: `text_${index}`,
+            label: field.label.toUpperCase(),
+            value: field.text
+          });
+        }
       });
-    });
+    }
 
-    // 2. Luego agregar links (links_fields)
-    const activeLinks = linksFields.filter(link => link.enabled && link.url);
-    
-    activeLinks.forEach(link => {
-      let value = link.url;
-      let attributedValue = null;
-      
-      // Determinar attributedValue según el tipo
-      if (link.type === 'phone') {
-        attributedValue = `<a href="tel:${link.url}">${link.url}</a>`;
-      } else if (link.type === 'email') {
-        attributedValue = `<a href="mailto:${link.url}">${link.url}</a>`;
-      } else if (['url', 'instagram', 'facebook', 'twitter', 'website'].includes(link.type)) {
-        attributedValue = `<a href="${link.url}">${link.url}</a>`;
-      }
-      
-      const fieldObj = {
-        key: link.id,
-        label: link.label.toUpperCase(),
-        value: value
-      };
-      
-      if (attributedValue) {
-        fieldObj.attributedValue = attributedValue;
-      }
-      
-      pass.backFields.push(fieldObj);
-    });
+    // 2. Links desde links_fields - USAR SOLO ÍCONOS (campo name)
+    if (linksFields && Array.isArray(linksFields)) {
+      linksFields
+        .filter(link => link.enabled && link.url)
+        .forEach((link, index) => {
+          pass.backFields.push({
+            key: `link_${index}`,
+            label: link.name,  // 🔥 SOLO EL ÍCONO (ej: 🌐, 📞, ✉️)
+            attributedValue: `<a href="${getLinkHref(link.type, link.url)}">${link.url}</a>`
+          });
+        });
+    }
 
     console.log(`✅ Back fields configured: ${pass.backFields.length} fields`);
 
