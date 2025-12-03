@@ -226,6 +226,12 @@ router.get('/wallet', async (req, res) => {
     }
 
     // ============================================
+    // 4.5 INICIALIZAR CERTIFICADOS (CRÍTICO)
+    // ============================================
+    await certificateManager.initialize();
+    console.log('✅ Certificates initialized');
+
+    // ============================================
     // 5. CREAR EL PASE CON COLORES RGB EN SEGUNDO PARÁMETRO
     // ============================================
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
