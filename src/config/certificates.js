@@ -44,7 +44,7 @@ class CertificateManager {
    */
   async checkLocalCertificates() {
     const requiredFiles = ['wwdr.pem', 'signerCert.pem', 'signerKey.pem'];
-
+    
     try {
       for (const file of requiredFiles) {
         await fs.access(path.join(this.certificatesPath, file));
@@ -134,7 +134,7 @@ class CertificateManager {
   validateCertificates() {
     const required = ['wwdr', 'signerCert', 'signerKey'];
     const missing = required.filter(cert => !this.certificates[cert]);
-
+    
     if (missing.length > 0) {
       throw new Error(`Missing certificates: ${missing.join(', ')}`);
     }
