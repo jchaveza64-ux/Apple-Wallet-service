@@ -244,7 +244,7 @@ router.get('/wallet', async (req, res) => {
     pass.authenticationToken = Buffer.from(`${customerId}-${businessId}-${Date.now()}`).toString('base64');
 
     // ============================================
-    // 6. CAMPOS DINÁMICOS DESDE member_fields (SIN textColor)
+    // 6. TODOS LOS CAMPOS VAN EN secondaryFields (IGNORAR position)
     // ============================================
     
     const templateData = {
@@ -260,34 +260,22 @@ router.get('/wallet', async (req, res) => {
       }
     };
 
-    // Procesar member_fields
+    // IMPORTANTE: TODOS los campos van en secondaryFields para aparecer debajo del strip
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
+      const foregroundColorRgb = hexToRgb(appleConfig.foreground_color || '#ef852e');
       
       const fieldData = {
         key: field.key,
         label: field.label,
-        value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value,
-        textAlignment: field.position === 'primary' ? 'PKTextAlignmentLeft' : 'PKTextAlignmentNatural'
+        value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
       };
 
-      switch (field.position) {
-        case 'primary':
-          pass.primaryFields.push(fieldData);
-          break;
-        case 'secondary':
-          pass.secondaryFields.push(fieldData);
-          break;
-        case 'auxiliary':
-          pass.auxiliaryFields.push(fieldData);
-          break;
-        case 'header':
-          pass.headerFields.push(fieldData);
-          break;
-      }
+      // TODOS van a secondaryFields (ignorar position de Supabase)
+      pass.secondaryFields.push(fieldData);
     });
 
-    console.log('✅ Fields configured from member_fields');
+    console.log('✅ Fields configured in secondaryFields (below strip)');
 
     // ============================================
     // 7. BARCODE DESDE barcode_config
