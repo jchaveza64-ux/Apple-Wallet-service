@@ -318,6 +318,7 @@ router.get('/wallet', async (req, res) => {
           pass.backFields.push({
             key: `link_${index}`,
             label: link.name,  // 🔥 SOLO EL ÍCONO (ej: 🌐, 📞, ✉️)
+            value: link.url,   // ✅ OBLIGATORIO
             attributedValue: `<a href="${getLinkHref(link.type, link.url)}">${link.url}</a>`
           });
         });
