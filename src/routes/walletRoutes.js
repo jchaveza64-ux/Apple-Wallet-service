@@ -72,6 +72,31 @@ function processTemplate(template, data) {
   return result;
 }
 
+/**
+ * Formatea el href según el tipo de link
+ */
+function formatLinkHref(link) {
+  switch(link.id) {
+    case 'phone':
+      return `tel:${link.url.replace(/\s/g, '')}`;
+    case 'email':
+      return `mailto:${link.url}`;
+    case 'address':
+      return `maps://?q=${encodeURIComponent(link.url)}`;
+    default:
+      return link.url.startsWith('http') ? link.url : `https://${link.url}`;
+  }
+}
+
+/**
+ * Determina si el link es clickeable
+ */
+function isClickableLink(link) {
+  return ['url', 'www', 'phone', 'email', 'address', 'website',
+          'facebook', 'instagram', 'linkedin', 'twitter', 'youtube', 'terms']
+          .includes(link.id);
+}
+
 router.get('/wallet', async (req, res) => {
   try {
     const { customerId, businessId, configId } = req.query;
@@ -163,6 +188,8 @@ router.get('/wallet', async (req, res) => {
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
+    const linksFields = passkitConfig.links_fields || [];
+    const additionalFields = passkitConfig.additional_fields || [];
 
     console.log('✅ Config:', passkitConfig.config_name);
 
@@ -260,10 +287,9 @@ router.get('/wallet', async (req, res) => {
       }
     };
 
-    // IMPORTANTE: TODOS los campos van en secondaryFields para aparecer debajo del strip
+    // TODOS los campos van en secondaryFields para aparecer debajo del strip
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
-      const foregroundColorRgb = hexToRgb(appleConfig.foreground_color || '#ef852e');
       
       const fieldData = {
         key: field.key,
@@ -271,14 +297,50 @@ router.get('/wallet', async (req, res) => {
         value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
       };
 
-      // TODOS van a secondaryFields (ignorar position de Supabase)
       pass.secondaryFields.push(fieldData);
     });
 
     console.log('✅ Fields configured in secondaryFields (below strip)');
 
     // ============================================
-    // 7. BARCODE DESDE barcode_config
+    // 7. CONFIGURAR REVERSO (backFields) DESDE links_fields
+    // ============================================
+    
+    const activeLinks = linksFields.filter(link => link.enabled && link.url);
+    
+    activeLinks.forEach((link, index) => {
+      const backField = {
+        key: link.id || `back_link_${index}`,
+        label: link.label,
+        value: link.url
+      };
+      
+      // Agregar attributedValue para links clickeables
+      if (isClickableLink(link)) {
+        const href = formatLinkHref(link);
+        backField.attributedValue = `<a href="${href}">${link.url}</a>`;
+      }
+      
+      pass.backFields.push(backField);
+    });
+
+    // Agregar additional_fields al reverso si existen
+    if (additionalFields && additionalFields.length > 0) {
+      additionalFields
+        .filter(f => f.enabled)
+        .forEach((field, index) => {
+          pass.backFields.push({
+            key: field.id || `additional_${index}`,
+            label: field.label,
+            value: field.value || ''
+          });
+        });
+    }
+
+    console.log(`✅ Back fields configured: ${pass.backFields.length} fields`);
+
+    // ============================================
+    // 8. BARCODE DESDE barcode_config
     // ============================================
     
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
@@ -295,7 +357,7 @@ router.get('/wallet', async (req, res) => {
     console.log('🔨 Pass configured with Supabase data (storeCard type)');
 
     // ============================================
-    // 8. GENERAR Y ENVIAR
+    // 9. GENERAR Y ENVIAR
     // ============================================
     const passBuffer = pass.getAsBuffer();
     console.log(`📦 Pass size: ${passBuffer.length} bytes`);
@@ -312,7 +374,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 9. LIMPIAR IMÁGENES TEMPORALES
+    // 10. LIMPIAR IMÁGENES TEMPORALES
     // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
