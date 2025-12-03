@@ -72,31 +72,6 @@ function processTemplate(template, data) {
   return result;
 }
 
-/**
- * Formatea el href según el tipo de link
- */
-function formatLinkHref(link) {
-  switch(link.id) {
-    case 'phone':
-      return `tel:${link.url.replace(/\s/g, '')}`;
-    case 'email':
-      return `mailto:${link.url}`;
-    case 'address':
-      return `maps://?q=${encodeURIComponent(link.url)}`;
-    default:
-      return link.url.startsWith('http') ? link.url : `https://${link.url}`;
-  }
-}
-
-/**
- * Determina si el link es clickeable
- */
-function isClickableLink(link) {
-  return ['url', 'www', 'phone', 'email', 'address', 'website',
-          'facebook', 'instagram', 'linkedin', 'twitter', 'youtube', 'terms']
-          .includes(link.id);
-}
-
 router.get('/wallet', async (req, res) => {
   try {
     const { customerId, businessId, configId } = req.query;
@@ -303,39 +278,48 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Fields configured in secondaryFields (below strip)');
 
     // ============================================
-    // 7. CONFIGURAR REVERSO (backFields) DESDE links_fields
+    // 7. CONFIGURAR REVERSO (backFields) - NUEVA LÓGICA LOVABLE
     // ============================================
     
-    const activeLinks = linksFields.filter(link => link.enabled && link.url);
+    // 1. Primero agregar textos (additional_fields con position === 'back')
+    const backTexts = additionalFields.filter(f => f.enabled && f.position === 'back');
     
-    activeLinks.forEach((link, index) => {
-      const backField = {
-        key: link.id || `back_link_${index}`,
-        label: link.label,
-        value: link.url
-      };
-      
-      // Agregar attributedValue para links clickeables
-      if (isClickableLink(link)) {
-        const href = formatLinkHref(link);
-        backField.attributedValue = `<a href="${href}">${link.url}</a>`;
-      }
-      
-      pass.backFields.push(backField);
+    backTexts.forEach((field, index) => {
+      pass.backFields.push({
+        key: field.id || `backtext_${index}`,
+        label: field.label,
+        value: field.value || ''
+      });
     });
 
-    // Agregar additional_fields al reverso si existen
-    if (additionalFields && additionalFields.length > 0) {
-      additionalFields
-        .filter(f => f.enabled)
-        .forEach((field, index) => {
-          pass.backFields.push({
-            key: field.id || `additional_${index}`,
-            label: field.label,
-            value: field.value || ''
-          });
-        });
-    }
+    // 2. Luego agregar links (links_fields)
+    const activeLinks = linksFields.filter(link => link.enabled && link.url);
+    
+    activeLinks.forEach(link => {
+      let value = link.url;
+      let attributedValue = null;
+      
+      // Determinar attributedValue según el tipo
+      if (link.type === 'phone') {
+        attributedValue = `<a href="tel:${link.url}">${link.url}</a>`;
+      } else if (link.type === 'email') {
+        attributedValue = `<a href="mailto:${link.url}">${link.url}</a>`;
+      } else if (['url', 'instagram', 'facebook', 'twitter', 'website'].includes(link.type)) {
+        attributedValue = `<a href="${link.url}">${link.url}</a>`;
+      }
+      
+      const fieldObj = {
+        key: link.id,
+        label: link.label.toUpperCase(),
+        value: value
+      };
+      
+      if (attributedValue) {
+        fieldObj.attributedValue = attributedValue;
+      }
+      
+      pass.backFields.push(fieldObj);
+    });
 
     console.log(`✅ Back fields configured: ${pass.backFields.length} fields`);
 
