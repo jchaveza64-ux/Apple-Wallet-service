@@ -136,6 +136,8 @@ async function generateUpdatedPass(serialNumber) {
     throw new Error('Loyalty card not found');
   }
 
+  console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
+
   const customer = Array.isArray(loyaltyCard.customers) 
     ? loyaltyCard.customers[0] 
     : loyaltyCard.customers;
@@ -194,14 +196,14 @@ async function generateUpdatedPass(serialNumber) {
       logoText: appleConfig.logo_text || '',
       backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
       foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
-      labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF')
+      labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
+      webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
+      authenticationToken: serialNumber
     }
   );
 
   pass.type = 'storeCard';
   pass.relevantDate = new Date().toISOString();
-  pass.webServiceURL = process.env.BASE_URL || '';
-  pass.authenticationToken = Buffer.from(`${customer.id}-${customer.business_id}-${serialNumber}`).toString('base64');
 
   const templateData = {
     customer: {
