@@ -113,174 +113,211 @@ function getLinkHref(type, url) {
  * Genera un pass actualizado
  */
 async function generateUpdatedPass(serialNumber) {
-  // INICIALIZAR CERTIFICADOS PRIMERO
-  await certificateManager.initialize();
-  
-  // Buscar el customer por card_number (serialNumber)
-  const { data: loyaltyCard, error: cardError } = await supabase
-    .from('loyalty_cards')
-    .select(`
-      *,
-      customers (
-        id,
-        full_name,
-        email,
-        phone,
-        business_id
-      )
-    `)
-    .eq('card_number', serialNumber)
-    .single();
+  try {
+    console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
+    
+    // INICIALIZAR CERTIFICADOS PRIMERO
+    console.log('📜 Initializing certificates...');
+    await certificateManager.initialize();
+    console.log('✅ Certificates initialized');
+    
+    // Buscar el customer por card_number (serialNumber)
+    console.log('🔍 Querying Supabase for loyalty card...');
+    const { data: loyaltyCard, error: cardError } = await supabase
+      .from('loyalty_cards')
+      .select(`
+        *,
+        customers (
+          id,
+          full_name,
+          email,
+          phone,
+          business_id
+        )
+      `)
+      .eq('card_number', serialNumber)
+      .single();
 
-  if (cardError || !loyaltyCard) {
-    throw new Error('Loyalty card not found');
-  }
-
-  console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
-
-  const customer = Array.isArray(loyaltyCard.customers) 
-    ? loyaltyCard.customers[0] 
-    : loyaltyCard.customers;
-
-  // Obtener configuración
-  const { data: formConfigs } = await supabase
-    .from('form_configurations')
-    .select('*, passkit_configs(*)')
-    .eq('business_id', customer.business_id)
-    .limit(1);
-
-  if (!formConfigs || formConfigs.length === 0) {
-    throw new Error('Config not found');
-  }
-
-  const passkitConfig = formConfigs[0].passkit_configs;
-  const appleConfig = passkitConfig.apple_config || {};
-  const memberFields = passkitConfig.member_fields || [];
-  const barcodeConfig = passkitConfig.barcode_config || {};
-  const linksFields = passkitConfig.links_fields || [];
-  const customFields = passkitConfig.custom_fields || [];
-
-  // Descargar imágenes
-  const templatePath = path.join(__dirname, '../templates/loyalty.pass');
-
-  if (appleConfig.logo_url) {
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
-  }
-
-  if (appleConfig.icon_url) {
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
-  }
-
-  if (appleConfig.strip_image_url) {
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
-  }
-
-  // Crear pass
-  const pass = await PKPass.from(
-    {
-      model: templatePath,
-      certificates: certificateManager.getAllCertificates()
-    },
-    {
-      serialNumber: serialNumber,
-      passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
-      teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
-      organizationName: appleConfig.organization_name || passkitConfig.config_name,
-      description: appleConfig.description || 'Tarjeta de Fidelidad',
-      logoText: appleConfig.logo_text || '',
-      backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
-      foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
-      labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
-      webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-      authenticationToken: serialNumber
+    if (cardError) {
+      console.error('❌ Supabase error:', cardError);
+      throw new Error(`Supabase error: ${cardError.message}`);
     }
-  );
 
-  pass.type = 'storeCard';
-  pass.relevantDate = new Date().toISOString();
-
-  const templateData = {
-    customer: {
-      full_name: customer.full_name,
-      email: customer.email,
-      phone: customer.phone
-    },
-    loyaltyCard: {
-      current_points: loyaltyCard.current_points || 0,
-      current_stamps: loyaltyCard.current_stamps || 0,
-      card_number: serialNumber
+    if (!loyaltyCard) {
+      console.error('❌ Loyalty card not found');
+      throw new Error('Loyalty card not found');
     }
-  };
 
-  // Agregar campos
-  memberFields.forEach(field => {
-    const value = processTemplate(field.valueTemplate, templateData);
-    pass.secondaryFields.push({
-      key: field.key,
-      label: field.label,
-      value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
-    });
-  });
+    console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
+    console.log('✅ Loyalty card found');
 
-  // Agregar backFields
-  if (customFields && Array.isArray(customFields)) {
-    const backsideTexts = customFields.filter(item => item.type === 'text');
-    backsideTexts.forEach(item => {
-      if (item.content && item.content.text) {
-        pass.backFields.push({
-          key: item.content.id,
-          label: '',
-          value: item.content.text
-        });
+    const customer = Array.isArray(loyaltyCard.customers) 
+      ? loyaltyCard.customers[0] 
+      : loyaltyCard.customers;
+
+    console.log('🔍 Querying form configs...');
+    // Obtener configuración
+    const { data: formConfigs, error: configError } = await supabase
+      .from('form_configurations')
+      .select('*, passkit_configs(*)')
+      .eq('business_id', customer.business_id)
+      .limit(1);
+
+    if (configError) {
+      console.error('❌ Config error:', configError);
+      throw new Error(`Config error: ${configError.message}`);
+    }
+
+    if (!formConfigs || formConfigs.length === 0) {
+      console.error('❌ Config not found');
+      throw new Error('Config not found');
+    }
+
+    console.log('✅ Config found');
+
+    const passkitConfig = formConfigs[0].passkit_configs;
+    const appleConfig = passkitConfig.apple_config || {};
+    const memberFields = passkitConfig.member_fields || [];
+    const barcodeConfig = passkitConfig.barcode_config || {};
+    const linksFields = passkitConfig.links_fields || [];
+    const customFields = passkitConfig.custom_fields || [];
+
+    // Descargar imágenes
+    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
+
+    console.log('📥 Downloading images...');
+    if (appleConfig.logo_url) {
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+    }
+
+    if (appleConfig.icon_url) {
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+    }
+
+    if (appleConfig.strip_image_url) {
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+    }
+    console.log('✅ Images downloaded');
+
+    // Crear pass
+    console.log('🎨 Creating pass...');
+    const pass = await PKPass.from(
+      {
+        model: templatePath,
+        certificates: certificateManager.getAllCertificates()
+      },
+      {
+        serialNumber: serialNumber,
+        passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
+        teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
+        organizationName: appleConfig.organization_name || passkitConfig.config_name,
+        description: appleConfig.description || 'Tarjeta de Fidelidad',
+        logoText: appleConfig.logo_text || '',
+        backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
+        foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
+        labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
+        webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
+        authenticationToken: serialNumber
       }
-    });
-  }
+    );
 
-  if (linksFields && Array.isArray(linksFields)) {
-    const activeLinks = linksFields.filter(link => link.enabled);
-    activeLinks.forEach(link => {
-      const href = getLinkHref(link.type, link.url);
-      pass.backFields.push({
-        key: link.id,
-        label: link.name,
-        value: link.url,
-        attributedValue: `<a href="${href}">${link.url}</a>`,
-        textAlignment: 'PKTextAlignmentLeft'
+    pass.type = 'storeCard';
+    pass.relevantDate = new Date().toISOString();
+
+    const templateData = {
+      customer: {
+        full_name: customer.full_name,
+        email: customer.email,
+        phone: customer.phone
+      },
+      loyaltyCard: {
+        current_points: loyaltyCard.current_points || 0,
+        current_stamps: loyaltyCard.current_stamps || 0,
+        card_number: serialNumber
+      }
+    };
+
+    console.log('📝 Adding fields with points:', loyaltyCard.current_points);
+
+    // Agregar campos
+    memberFields.forEach(field => {
+      const value = processTemplate(field.valueTemplate, templateData);
+      pass.secondaryFields.push({
+        key: field.key,
+        label: field.label,
+        value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
       });
     });
+
+    // Agregar backFields
+    if (customFields && Array.isArray(customFields)) {
+      const backsideTexts = customFields.filter(item => item.type === 'text');
+      backsideTexts.forEach(item => {
+        if (item.content && item.content.text) {
+          pass.backFields.push({
+            key: item.content.id,
+            label: '',
+            value: item.content.text
+          });
+        }
+      });
+    }
+
+    if (linksFields && Array.isArray(linksFields)) {
+      const activeLinks = linksFields.filter(link => link.enabled);
+      activeLinks.forEach(link => {
+        const href = getLinkHref(link.type, link.url);
+        pass.backFields.push({
+          key: link.id,
+          label: link.name,
+          value: link.url,
+          attributedValue: `<a href="${href}">${link.url}</a>`,
+          textAlignment: 'PKTextAlignmentLeft'
+        });
+      });
+    }
+
+    // Agregar barcode
+    const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
+    pass.setBarcodes({
+      message: barcodeMessage || customer.id,
+      format: barcodeConfig.format || 'PKBarcodeFormatQR',
+      messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
+      altText: barcodeConfig.alt_text || ''
+    });
+
+    console.log('🗑️ Cleaning up images...');
+    // Limpiar imágenes
+    try {
+      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
+    } catch (cleanupError) {
+      // Ignorar errores
+    }
+
+    console.log('📦 Generating buffer...');
+    const buffer = pass.getAsBuffer();
+    console.log('✅ Pass generation completed successfully');
+    
+    return buffer;
+  } catch (error) {
+    console.error('💥 CRITICAL ERROR in generateUpdatedPass:', error);
+    console.error('Stack trace:', error.stack);
+    throw error;
   }
-
-  // Agregar barcode
-  const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
-  pass.setBarcodes({
-    message: barcodeMessage || customer.id,
-    format: barcodeConfig.format || 'PKBarcodeFormatQR',
-    messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
-    altText: barcodeConfig.alt_text || ''
-  });
-
-  // Limpiar imágenes
-  try {
-    await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
-    await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
-  } catch (cleanupError) {
-    // Ignorar errores
-  }
-
-  return pass.getAsBuffer();
 }
 
 // ============================================
@@ -410,12 +447,15 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
         .single();
 
       if (!registration) {
+        console.log('❌ Invalid auth token for:', serialNumber);
         return res.status(401).json({ error: 'Invalid authentication token' });
       }
     }
 
     // Generar pass actualizado
+    console.log('⏳ Calling generateUpdatedPass...');
     const passBuffer = await generateUpdatedPass(serialNumber);
+    console.log('✅ generateUpdatedPass completed');
 
     console.log(`✅ Pass generated: ${passBuffer.length} bytes`);
 
@@ -431,6 +471,8 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Failed to generate pass:', error);
+    console.error('Error details:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });
