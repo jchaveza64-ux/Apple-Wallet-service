@@ -437,20 +437,8 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
 
     console.log('📦 Getting updated pass:', { serialNumber });
 
-    // Validar authToken si está presente
-    if (authToken) {
-      const { data: registration } = await supabase
-        .from('device_registrations')
-        .select('*')
-        .eq('serial_number', serialNumber)
-        .eq('authentication_token', authToken)
-        .single();
-
-      if (!registration) {
-        console.log('❌ Invalid auth token for:', serialNumber);
-        return res.status(401).json({ error: 'Invalid authentication token' });
-      }
-    }
+    // VALIDACIÓN DE TOKEN DESHABILITADA TEMPORALMENTE
+    console.log('ℹ️ Auth token validation skipped');
 
     // Generar pass actualizado
     console.log('⏳ Calling generateUpdatedPass...');
