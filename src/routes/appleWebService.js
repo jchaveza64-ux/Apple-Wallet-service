@@ -18,7 +18,6 @@ const router = express.Router();
  */
 let apnsProvider = null;
 try {
-  // Convertir \n literal a saltos de línea reales
   const apnsKey = process.env.APPLE_APNS_KEY
     ? process.env.APPLE_APNS_KEY.replace(/\\n/g, '\n')
     : null;
@@ -116,12 +115,10 @@ async function generateUpdatedPass(serialNumber) {
   try {
     console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
     
-    // INICIALIZAR CERTIFICADOS PRIMERO
     console.log('📜 Initializing certificates...');
     await certificateManager.initialize();
     console.log('✅ Certificates initialized');
     
-    // Buscar el customer por card_number (serialNumber)
     console.log('🔍 Querying Supabase for loyalty card...');
     const { data: loyaltyCard, error: cardError } = await supabase
       .from('loyalty_cards')
@@ -156,7 +153,6 @@ async function generateUpdatedPass(serialNumber) {
       : loyaltyCard.customers;
 
     console.log('🔍 Querying form configs...');
-    // Obtener configuración
     const { data: formConfigs, error: configError } = await supabase
       .from('form_configurations')
       .select('*, passkit_configs(*)')
@@ -182,7 +178,6 @@ async function generateUpdatedPass(serialNumber) {
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
-    // Descargar imágenes
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
     console.log('📥 Downloading images...');
@@ -205,7 +200,6 @@ async function generateUpdatedPass(serialNumber) {
     }
     console.log('✅ Images downloaded');
 
-    // Crear pass
     console.log('🎨 Creating pass...');
     const pass = await PKPass.from(
       {
@@ -245,7 +239,6 @@ async function generateUpdatedPass(serialNumber) {
 
     console.log('📝 Adding fields with points:', loyaltyCard.current_points);
 
-    // Agregar campos
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
       pass.secondaryFields.push({
@@ -255,7 +248,6 @@ async function generateUpdatedPass(serialNumber) {
       });
     });
 
-    // Agregar backFields
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
       backsideTexts.forEach(item => {
@@ -283,7 +275,6 @@ async function generateUpdatedPass(serialNumber) {
       });
     }
 
-    // Agregar barcode
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
     pass.setBarcodes({
       message: barcodeMessage || customer.id,
@@ -293,7 +284,6 @@ async function generateUpdatedPass(serialNumber) {
     });
 
     console.log('🗑️ Cleaning up images...');
-    // Limpiar imágenes
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
       await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
@@ -335,7 +325,6 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
 
     console.log('📱 Registering device:', { deviceLibraryIdentifier, serialNumber, pushToken });
 
-    // Buscar customer por card_number
     const { data: loyaltyCard } = await supabase
       .from('loyalty_cards')
       .select('*, customers(*)')
@@ -350,7 +339,6 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       ? loyaltyCard.customers[0] 
       : loyaltyCard.customers;
 
-    // Insertar o actualizar registro
     const { error } = await supabase
       .from('device_registrations')
       .upsert({
@@ -360,7 +348,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
         serial_number: serialNumber,
         customer_id: customer.id,
         business_id: customer.business_id,
-        authentication_token: authToken || '',
+        authentication_token: authToken || serialNumber,
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'device_library_identifier,pass_type_identifier,serial_number'
@@ -435,10 +423,20 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
     const { serialNumber } = req.params;
     const authToken = req.headers['authorization']?.replace('ApplePass ', '');
 
-    console.log('📦 Getting updated pass:', { serialNumber });
+    console.log('📦 Getting updated pass:', { serialNumber, authToken });
 
-    // VALIDACIÓN DE TOKEN DESHABILITADA TEMPORALMENTE
-    console.log('ℹ️ Auth token validation skipped');
+    // VALIDACIÓN DE TOKEN RE-HABILITADA
+    if (!authToken) {
+      console.log('❌ No auth token provided');
+      return res.status(401).json({ error: 'Authorization required' });
+    }
+
+    if (authToken !== serialNumber) {
+      console.log('❌ Invalid auth token. Expected:', serialNumber, 'Got:', authToken);
+      return res.status(401).json({ error: 'Invalid authentication token' });
+    }
+
+    console.log('✅ Auth token validated');
 
     // Generar pass actualizado
     console.log('⏳ Calling generateUpdatedPass...');
@@ -447,7 +445,6 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
 
     console.log(`✅ Pass generated: ${passBuffer.length} bytes`);
 
-    // Actualizar lastModified
     await supabase
       .from('device_registrations')
       .update({ updated_at: new Date().toISOString() })
@@ -496,7 +493,7 @@ router.delete('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdent
 });
 
 // ============================================
-// 5. ENVIAR PUSH NOTIFICATION (llamado por webhook)
+// 5. ENVIAR PUSH NOTIFICATION
 // ============================================
 router.post('/notify-update', async (req, res) => {
   try {
@@ -508,7 +505,6 @@ router.post('/notify-update', async (req, res) => {
 
     console.log('🔔 Sending push notification for:', serialNumber);
 
-    // Buscar todos los dispositivos registrados para este pass
     const { data: registrations, error } = await supabase
       .from('device_registrations')
       .select('push_token')
@@ -524,7 +520,6 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // Enviar push notification a cada dispositivo
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
