@@ -232,7 +232,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Certificates initialized');
 
     // ============================================
-    // 5. CREAR EL PASE CON COLORES RGB EN SEGUNDO PARÁMETRO
+    // 5. CREAR EL PASE - CRÍTICO: webServiceURL Y authenticationToken VAN AQUÍ
     // ============================================
     const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
 
@@ -250,7 +250,10 @@ router.get('/wallet', async (req, res) => {
         logoText: appleConfig.logo_text || '',
         backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
-        labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF')
+        labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
+        // CRÍTICO: Estos campos DEBEN ir aquí para aparecer en pass.json
+        webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
+        authenticationToken: serialNumber
       }
     );
 
@@ -263,12 +266,8 @@ router.get('/wallet', async (req, res) => {
       label: hexToRgb(appleConfig.label_color || '#FFFFFF')
     });
 
-    // Web service - CORREGIDO
-    pass.webServiceURL = process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com';
-    pass.authenticationToken = serialNumber;  // Simplificado: solo el card_number
-
-    console.log('🌐 WebService configured:', pass.webServiceURL);
-    console.log('🔑 Auth token:', pass.authenticationToken);
+    console.log('🌐 WebService configured:', process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com');
+    console.log('🔑 Auth token:', serialNumber);
 
     // ============================================
     // 6. TODOS LOS CAMPOS VAN EN secondaryFields (IGNORAR position)
