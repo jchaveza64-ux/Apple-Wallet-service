@@ -438,7 +438,6 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
 
     console.log('✅ Auth token validated');
 
-    // Generar pass actualizado
     console.log('⏳ Calling generateUpdatedPass...');
     const passBuffer = await generateUpdatedPass(serialNumber);
     console.log('✅ generateUpdatedPass completed');
@@ -493,17 +492,18 @@ router.delete('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdent
 });
 
 // ============================================
-// 5. ENVIAR PUSH NOTIFICATION
+// 5. ENVIAR PUSH NOTIFICATION CON MENSAJE VISIBLE
 // ============================================
 router.post('/notify-update', async (req, res) => {
   try {
-    const { serialNumber } = req.body;
+    const { serialNumber, pointsChange, newPoints, oldPoints } = req.body;
 
     if (!serialNumber) {
       return res.status(400).json({ error: 'serialNumber required' });
     }
 
     console.log('🔔 Sending push notification for:', serialNumber);
+    console.log('📊 Points change:', pointsChange, '| New total:', newPoints);
 
     const { data: registrations, error } = await supabase
       .from('device_registrations')
@@ -520,10 +520,29 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
+    // Crear mensaje personalizado según cambio de puntos
+    let message;
+    if (pointsChange > 0) {
+      message = `¡Sumaste ${pointsChange} puntos! Ahora tienes ${newPoints} puntos`;
+    } else if (pointsChange < 0) {
+      message = `Canjeaste ${Math.abs(pointsChange)} puntos. Te quedan ${newPoints} puntos`;
+    } else {
+      message = `Tienes ${newPoints} puntos`;
+    }
+
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
-      notification.contentAvailable = true;
+      
+      // NOTIFICACIÓN VISIBLE CON MENSAJE
+      notification.alert = {
+        title: 'CAFÉ OLÉ',
+        body: message
+      };
+      
+      notification.sound = 'default';
+      notification.badge = 1;
+      notification.contentAvailable = true; // Mantener para actualización automática
       notification.payload = {};
 
       try {
@@ -538,7 +557,7 @@ router.post('/notify-update', async (req, res) => {
 
     await Promise.all(promises);
 
-    console.log(`✅ Sent ${promises.length} push notifications`);
+    console.log(`✅ Sent ${promises.length} push notifications with message: "${message}"`);
     res.json({ message: `Notified ${promises.length} devices` });
 
   } catch (error) {
