@@ -251,7 +251,6 @@ router.get('/wallet', async (req, res) => {
         backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
-        // CRÍTICO: Estos campos DEBEN ir aquí para aparecer en pass.json
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
         authenticationToken: serialNumber
       }
@@ -296,10 +295,17 @@ router.get('/wallet', async (req, res) => {
         value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
       };
 
+      // AGREGAR changeMessage para notificaciones automáticas de Apple
+      if (field.key.includes('points')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
+      } else if (field.key.includes('stamps')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
+      }
+
       pass.secondaryFields.push(fieldData);
     });
 
-    console.log('✅ Fields configured in secondaryFields (below strip)');
+    console.log('✅ Fields configured in secondaryFields (below strip) with changeMessage');
 
     // ============================================
     // 7. CONFIGURAR REVERSO (backFields) - ORDEN: TEXTOS + LINKS
@@ -313,7 +319,7 @@ router.get('/wallet', async (req, res) => {
         if (item.content && item.content.text) {
           pass.backFields.push({
             key: item.content.id,
-            label: '',  // Sin label para textos
+            label: '',
             value: item.content.text
           });
         }
@@ -329,10 +335,10 @@ router.get('/wallet', async (req, res) => {
         
         pass.backFields.push({
           key: link.id,
-          label: link.name,  // Emoji: 🌐, 📞, ✉️
+          label: link.name,
           value: link.url,
           attributedValue: `<a href="${href}">${link.url}</a>`,
-          textAlignment: 'PKTextAlignmentLeft'  // Alineación izquierda
+          textAlignment: 'PKTextAlignmentLeft'
         });
       });
     }

@@ -111,7 +111,7 @@ function getLinkHref(type, url) {
 /**
  * Genera un pass actualizado
  */
-async function generateUpdatedPass(serialNumber) {
+async function generateUpdatedPass(serialNumber, pointsChange = null) {
   try {
     console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
     
@@ -239,15 +239,46 @@ async function generateUpdatedPass(serialNumber) {
 
     console.log('📝 Adding fields with points:', loyaltyCard.current_points);
 
+    // Agregar campos con changeMessage
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
-      pass.secondaryFields.push({
+      
+      const fieldData = {
         key: field.key,
         label: field.label,
         value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
-      });
+      };
+
+      // AGREGAR changeMessage para notificaciones automáticas de Apple
+      if (field.key.includes('points')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
+      } else if (field.key.includes('stamps')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
+      }
+
+      pass.secondaryFields.push(fieldData);
     });
 
+    // Agregar backFields - PRIMERO: Movimiento reciente (si hay cambio)
+    if (pointsChange !== null && pointsChange !== 0) {
+      const fecha = new Date().toLocaleDateString('es-PE', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      });
+      const hora = new Date().toLocaleTimeString('es-PE', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+      
+      pass.backFields.push({
+        key: 'lastPointsUpdate',
+        label: '📊 Último movimiento',
+        value: `${fecha} ${hora}: ${pointsChange > 0 ? '+' : ''}${pointsChange} pts → ${loyaltyCard.current_points} total`
+      });
+    }
+
+    // Agregar textos personalizados
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
       backsideTexts.forEach(item => {
@@ -261,6 +292,7 @@ async function generateUpdatedPass(serialNumber) {
       });
     }
 
+    // Agregar links
     if (linksFields && Array.isArray(linksFields)) {
       const activeLinks = linksFields.filter(link => link.enabled);
       activeLinks.forEach(link => {
@@ -520,7 +552,7 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // Crear mensaje personalizado según cambio de puntos
+    // Crear mensaje personalizado
     let message;
     if (pointsChange > 0) {
       message = `¡Sumaste ${pointsChange} puntos! Ahora tienes ${newPoints} puntos`;
@@ -542,7 +574,7 @@ router.post('/notify-update', async (req, res) => {
       
       notification.sound = 'default';
       notification.badge = 1;
-      notification.contentAvailable = true; // Mantener para actualización automática
+      notification.contentAvailable = true;
       notification.payload = {};
 
       try {
