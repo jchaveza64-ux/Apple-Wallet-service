@@ -277,7 +277,7 @@ async function generateUpdatedPass(serialNumber) {
     });
 
     // ============================================
-    // AGREGAR HISTORIAL EN REVERSO (backFields)
+    // AGREGAR HISTORIAL EN REVERSO (backFields) - CON ZONA HORARIA DE LIMA
     // ============================================
     console.log('📊 Adding points history to back...');
     
@@ -289,16 +289,18 @@ async function generateUpdatedPass(serialNumber) {
         value: ''
       });
 
-      // Agregar cada movimiento
+      // Agregar cada movimiento CON ZONA HORARIA DE LIMA
       pointsHistory.forEach((record, index) => {
         const fecha = new Date(record.created_at).toLocaleDateString('es-PE', { 
           day: '2-digit', 
           month: '2-digit', 
-          year: 'numeric' 
+          year: 'numeric',
+          timeZone: 'America/Lima'
         });
         const hora = new Date(record.created_at).toLocaleTimeString('es-PE', { 
           hour: '2-digit', 
-          minute: '2-digit' 
+          minute: '2-digit',
+          timeZone: 'America/Lima'
         });
         
         const signo = record.points_change > 0 ? '+' : '';
@@ -310,7 +312,7 @@ async function generateUpdatedPass(serialNumber) {
         });
       });
 
-      console.log(`✅ Added ${pointsHistory.length} history records to back`);
+      console.log(`✅ Added ${pointsHistory.length} history records to back (Lima timezone)`);
     }
 
     // Agregar textos personalizados
