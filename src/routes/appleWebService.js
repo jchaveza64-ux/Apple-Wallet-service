@@ -111,7 +111,7 @@ function getLinkHref(type, url) {
 /**
  * Genera un pass actualizado
  */
-async function generateUpdatedPass(serialNumber, pointsChange = null) {
+async function generateUpdatedPass(serialNumber) {
   try {
     console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
     
@@ -170,6 +170,23 @@ async function generateUpdatedPass(serialNumber, pointsChange = null) {
     }
 
     console.log('✅ Config found');
+
+    // ============================================
+    // OBTENER HISTORIAL DE PUNTOS (ÚLTIMOS 3)
+    // ============================================
+    console.log('📜 Querying points history...');
+    const { data: pointsHistory, error: historyError } = await supabase
+      .from('points_history')
+      .select('*')
+      .eq('card_number', serialNumber)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (historyError) {
+      console.warn('⚠️ Could not fetch points history:', historyError);
+    } else {
+      console.log(`✅ Found ${pointsHistory?.length || 0} history records`);
+    }
 
     const passkitConfig = formConfigs[0].passkit_configs;
     const appleConfig = passkitConfig.apple_config || {};
@@ -259,23 +276,41 @@ async function generateUpdatedPass(serialNumber, pointsChange = null) {
       pass.secondaryFields.push(fieldData);
     });
 
-    // Agregar backFields - PRIMERO: Movimiento reciente (si hay cambio)
-    if (pointsChange !== null && pointsChange !== 0) {
-      const fecha = new Date().toLocaleDateString('es-PE', { 
-        day: '2-digit', 
-        month: '2-digit', 
-        year: 'numeric' 
-      });
-      const hora = new Date().toLocaleTimeString('es-PE', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
-      
+    // ============================================
+    // AGREGAR HISTORIAL EN REVERSO (backFields)
+    // ============================================
+    console.log('📊 Adding points history to back...');
+    
+    if (pointsHistory && pointsHistory.length > 0) {
+      // Agregar título del historial
       pass.backFields.push({
-        key: 'lastPointsUpdate',
-        label: '📊 Último movimiento',
-        value: `${fecha} ${hora}: ${pointsChange > 0 ? '+' : ''}${pointsChange} pts → ${loyaltyCard.current_points} total`
+        key: 'history_title',
+        label: '📊 HISTORIAL DE MOVIMIENTOS',
+        value: ''
       });
+
+      // Agregar cada movimiento
+      pointsHistory.forEach((record, index) => {
+        const fecha = new Date(record.created_at).toLocaleDateString('es-PE', { 
+          day: '2-digit', 
+          month: '2-digit', 
+          year: 'numeric' 
+        });
+        const hora = new Date(record.created_at).toLocaleTimeString('es-PE', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        const signo = record.points_change > 0 ? '+' : '';
+        
+        pass.backFields.push({
+          key: `history_${index}`,
+          label: `${fecha} ${hora}`,
+          value: `${signo}${record.points_change} pts → ${record.new_points} total`
+        });
+      });
+
+      console.log(`✅ Added ${pointsHistory.length} history records to back`);
     }
 
     // Agregar textos personalizados
