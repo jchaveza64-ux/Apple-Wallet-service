@@ -425,16 +425,46 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       : loyaltyCard.customers;
 
     // ============================================
-    // OBTENER passkit_config_id de form_configurations
+    // EXTRAER passkit_config_id DEL serialNumber
     // ============================================
-    const { data: formConfig } = await supabase
-      .from('form_configurations')
-      .select('passkit_config_id')
-      .eq('business_id', customer.business_id)
-      .limit(1)
-      .single();
+    let passkitConfigId = null;
 
-    const passkitConfigId = formConfig?.passkit_config_id;
+    // Si el serial tiene el formato nuevo: XXXX-YYYY-ZZZZZZZZ
+    // donde XXXX son los primeros 4 del configId
+    const serialParts = serialNumber.split('-');
+    if (serialParts.length >= 3) {
+      const configPrefix = serialParts[0];
+      console.log('🔍 Extracting config from serial prefix:', configPrefix);
+      
+      const { data: matchingConfig } = await supabase
+        .from('passkit_configs')
+        .select('id')
+        .eq('business_id', customer.business_id)
+        .ilike('id', `${configPrefix}%`)
+        .limit(1)
+        .single();
+      
+      passkitConfigId = matchingConfig?.id;
+      
+      if (passkitConfigId) {
+        console.log('✅ Extracted passkit_config_id from serial:', passkitConfigId);
+      }
+    }
+
+    // Fallback: Si no encontramos, usar la primera del negocio (legacy)
+    if (!passkitConfigId) {
+      console.log('⚠️ No config found in serial, using fallback (first config)');
+      const { data: formConfig } = await supabase
+        .from('form_configurations')
+        .select('passkit_config_id')
+        .eq('business_id', customer.business_id)
+        .limit(1)
+        .single();
+      
+      passkitConfigId = formConfig?.passkit_config_id;
+    }
+
+    console.log('🔑 Final passkit_config_id:', passkitConfigId);
 
     const { error } = await supabase
       .from('device_registrations')
