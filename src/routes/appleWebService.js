@@ -119,7 +119,7 @@ async function generateUpdatedPass(serialNumber) {
     await certificateManager.initialize();
     console.log('✅ Certificates initialized');
     
-    console.log('🔍 Querying Supabase for loyalty card...');
+    console.log('🔍 Querying Supabase for loyalty card WITH passkit_config_id...');
     const { data: loyaltyCard, error: cardError } = await supabase
       .from('loyalty_cards')
       .select(`
@@ -146,6 +146,7 @@ async function generateUpdatedPass(serialNumber) {
     }
 
     console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
+    console.log('🔍 DEBUG - passkit_config_id from loyalty_card:', loyaltyCard.passkit_config_id);
     console.log('✅ Loyalty card found');
 
     const customer = Array.isArray(loyaltyCard.customers) 
@@ -153,22 +154,40 @@ async function generateUpdatedPass(serialNumber) {
       : loyaltyCard.customers;
 
     // ============================================
-    // OBTENER passkit_config_id DEL REGISTRO DE DISPOSITIVO
+    // OBTENER passkit_config_id DIRECTAMENTE DE LA TARJETA
     // ============================================
-    console.log('🔍 Getting passkit_config_id from device registration...');
-    const { data: deviceReg, error: deviceError } = await supabase
-      .from('device_registrations')
-      .select('passkit_config_id')
-      .eq('serial_number', serialNumber)
-      .limit(1)
-      .single();
+    let passkitConfigId = loyaltyCard.passkit_config_id;
 
-    if (deviceError || !deviceReg?.passkit_config_id) {
-      console.error('❌ Could not find passkit_config_id in device registration');
-      throw new Error('Device registration not found or missing config ID');
+    // Fallback: Si la tarjeta no tiene config_id (tarjetas viejas), buscar en device_registrations
+    if (!passkitConfigId) {
+      console.log('⚠️ Loyalty card has no passkit_config_id, checking device_registrations...');
+      const { data: deviceReg } = await supabase
+        .from('device_registrations')
+        .select('passkit_config_id')
+        .eq('serial_number', serialNumber)
+        .limit(1)
+        .single();
+      
+      passkitConfigId = deviceReg?.passkit_config_id;
     }
 
-    const passkitConfigId = deviceReg.passkit_config_id;
+    // Fallback final: Si aún no hay, usar la primera del negocio
+    if (!passkitConfigId) {
+      console.log('⚠️ No passkit_config_id found anywhere, using fallback (first config)');
+      const { data: formConfig } = await supabase
+        .from('form_configurations')
+        .select('passkit_config_id')
+        .eq('business_id', customer.business_id)
+        .limit(1)
+        .single();
+      
+      passkitConfigId = formConfig?.passkit_config_id;
+    }
+
+    if (!passkitConfigId) {
+      throw new Error('Could not determine passkit_config_id');
+    }
+
     console.log('✅ Using passkit_config_id:', passkitConfigId);
 
     // ============================================
@@ -410,6 +429,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
 
     console.log('📱 Registering device:', { deviceLibraryIdentifier, serialNumber, pushToken });
 
+    // Obtener loyalty card CON passkit_config_id
     const { data: loyaltyCard } = await supabase
       .from('loyalty_cards')
       .select('*, customers(*)')
@@ -424,36 +444,12 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       ? loyaltyCard.customers[0] 
       : loyaltyCard.customers;
 
-    // ============================================
-    // EXTRAER passkit_config_id DEL serialNumber
-    // ============================================
-    let passkitConfigId = null;
+    // Usar el passkit_config_id de la tarjeta directamente
+    let passkitConfigId = loyaltyCard.passkit_config_id;
 
-    // Si el serial tiene el formato nuevo: XXXX-YYYY-ZZZZZZZZ
-    // donde XXXX son los primeros 4 del configId
-    const serialParts = serialNumber.split('-');
-    if (serialParts.length >= 3) {
-      const configPrefix = serialParts[0];
-      console.log('🔍 Extracting config from serial prefix:', configPrefix);
-      
-      const { data: matchingConfig } = await supabase
-        .from('passkit_configs')
-        .select('id')
-        .eq('business_id', customer.business_id)
-        .ilike('id', `${configPrefix}%`)
-        .limit(1)
-        .single();
-      
-      passkitConfigId = matchingConfig?.id;
-      
-      if (passkitConfigId) {
-        console.log('✅ Extracted passkit_config_id from serial:', passkitConfigId);
-      }
-    }
-
-    // Fallback: Si no encontramos, usar la primera del negocio (legacy)
+    // Fallback si la tarjeta no tiene config_id (tarjetas viejas)
     if (!passkitConfigId) {
-      console.log('⚠️ No config found in serial, using fallback (first config)');
+      console.log('⚠️ Legacy card without passkit_config_id, using fallback');
       const { data: formConfig } = await supabase
         .from('form_configurations')
         .select('passkit_config_id')
@@ -464,7 +460,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       passkitConfigId = formConfig?.passkit_config_id;
     }
 
-    console.log('🔑 Final passkit_config_id:', passkitConfigId);
+    console.log('🔑 Registering with passkit_config_id:', passkitConfigId);
 
     const { error } = await supabase
       .from('device_registrations')
