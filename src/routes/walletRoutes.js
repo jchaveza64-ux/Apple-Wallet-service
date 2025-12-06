@@ -151,38 +151,34 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Business:', businessData.name);
 
     // ============================================
-    // 3. OBTENER CONFIGURACIÓN COMPLETA
+    // 3. OBTENER CONFIGURACIÓN COMPLETA (DIRECTO DE PASSKIT_CONFIGS)
     // ============================================
-    const { data: formConfig, error: formError } = await supabase
-      .from('form_configurations')
-      .select('*')
-      .eq('id', configId)
-      .eq('business_id', businessId)
-      .single();
-
-    if (formError || !formConfig) {
-      console.error('❌ Config not found:', formError);
-      return res.status(404).json({ error: 'Config not found' });
-    }
+    console.log('🔍 Querying passkit config directly with ID:', configId);
 
     const { data: passkitConfig, error: passkitError } = await supabase
       .from('passkit_configs')
       .select('*')
-      .eq('id', formConfig.passkit_config_id)
+      .eq('id', configId)
       .single();
 
     if (passkitError || !passkitConfig) {
       console.error('❌ PassKit config not found:', passkitError);
-      return res.status(404).json({ error: 'PassKit config not found' });
+      return res.status(404).json({ error: 'Config not found' });
     }
+
+    // Validar que el business_id coincida
+    if (passkitConfig.business_id !== businessId) {
+      console.error('❌ Business ID mismatch');
+      return res.status(403).json({ error: 'Business ID mismatch' });
+    }
+
+    console.log('✅ PassKit Config:', passkitConfig.config_name);
 
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
-
-    console.log('✅ Config:', passkitConfig.config_name);
 
     // ============================================
     // 4. DESCARGAR IMÁGENES DESDE SUPABASE
