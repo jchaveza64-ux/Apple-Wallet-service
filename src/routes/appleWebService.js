@@ -152,24 +152,41 @@ async function generateUpdatedPass(serialNumber) {
       ? loyaltyCard.customers[0] 
       : loyaltyCard.customers;
 
-    console.log('🔍 Querying form configs...');
-    const { data: formConfigs, error: configError } = await supabase
-      .from('form_configurations')
-      .select('*, passkit_configs(*)')
-      .eq('business_id', customer.business_id)
-      .limit(1);
+    // ============================================
+    // OBTENER passkit_config_id DEL REGISTRO DE DISPOSITIVO
+    // ============================================
+    console.log('🔍 Getting passkit_config_id from device registration...');
+    const { data: deviceReg, error: deviceError } = await supabase
+      .from('device_registrations')
+      .select('passkit_config_id')
+      .eq('serial_number', serialNumber)
+      .limit(1)
+      .single();
 
-    if (configError) {
+    if (deviceError || !deviceReg?.passkit_config_id) {
+      console.error('❌ Could not find passkit_config_id in device registration');
+      throw new Error('Device registration not found or missing config ID');
+    }
+
+    const passkitConfigId = deviceReg.passkit_config_id;
+    console.log('✅ Using passkit_config_id:', passkitConfigId);
+
+    // ============================================
+    // OBTENER CONFIGURACIÓN ESPECÍFICA
+    // ============================================
+    console.log('🔍 Querying passkit config...');
+    const { data: passkitConfig, error: configError } = await supabase
+      .from('passkit_configs')
+      .select('*')
+      .eq('id', passkitConfigId)
+      .single();
+
+    if (configError || !passkitConfig) {
       console.error('❌ Config error:', configError);
       throw new Error(`Config error: ${configError.message}`);
     }
 
-    if (!formConfigs || formConfigs.length === 0) {
-      console.error('❌ Config not found');
-      throw new Error('Config not found');
-    }
-
-    console.log('✅ Config found');
+    console.log('✅ Config found:', passkitConfig.config_name);
 
     // ============================================
     // OBTENER HISTORIAL DE PUNTOS (ÚLTIMOS 3)
@@ -188,7 +205,6 @@ async function generateUpdatedPass(serialNumber) {
       console.log(`✅ Found ${pointsHistory?.length || 0} history records`);
     }
 
-    const passkitConfig = formConfigs[0].passkit_configs;
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
@@ -229,7 +245,7 @@ async function generateUpdatedPass(serialNumber) {
         teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
         organizationName: appleConfig.organization_name || passkitConfig.config_name,
         description: appleConfig.description || 'Tarjeta de Fidelidad',
-        logoText: appleConfig.logo_text || '',
+        logoText: appleConfig.logo_text || undefined,
         backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
@@ -408,6 +424,18 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       ? loyaltyCard.customers[0] 
       : loyaltyCard.customers;
 
+    // ============================================
+    // OBTENER passkit_config_id de form_configurations
+    // ============================================
+    const { data: formConfig } = await supabase
+      .from('form_configurations')
+      .select('passkit_config_id')
+      .eq('business_id', customer.business_id)
+      .limit(1)
+      .single();
+
+    const passkitConfigId = formConfig?.passkit_config_id;
+
     const { error } = await supabase
       .from('device_registrations')
       .upsert({
@@ -417,6 +445,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
         serial_number: serialNumber,
         customer_id: customer.id,
         business_id: customer.business_id,
+        passkit_config_id: passkitConfigId,
         authentication_token: authToken || serialNumber,
         updated_at: new Date().toISOString()
       }, {
@@ -428,7 +457,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       return res.status(500).json({ error: error.message });
     }
 
-    console.log('✅ Device registered successfully');
+    console.log('✅ Device registered successfully with config_id:', passkitConfigId);
     res.status(201).send();
 
   } catch (error) {
