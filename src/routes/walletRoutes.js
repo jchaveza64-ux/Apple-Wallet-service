@@ -1,7 +1,7 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { PKPass } from 'passkit-generator';
-import certificateManager from '../config/certificateManager.js';
+import certificateManager from '../config/certificates.js'; //
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
