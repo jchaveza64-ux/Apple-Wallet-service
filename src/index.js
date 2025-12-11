@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import walletRoutes from './src/routes/walletRoutes.js';
 import appleWebServiceRoutes from './src/routes/appleWebService.js';
+import certificateManager from './src/config/certificates.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,13 +40,30 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log('=================================================');
-  console.log('🚀 Apple Wallet Service STARTED');
-  console.log(`📡 Port: ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
-  console.log('✅ Certificates: Initialized');
-  console.log('=================================================');
-});
+// Start server with async initialization
+async function startServer() {
+  try {
+    // CRÍTICO: Inicializar certificados ANTES de iniciar servidor
+    console.log('🔐 Initializing certificates...');
+    await certificateManager.initialize();
+    certificateManager.validateCertificates();
+    console.log('✅ Certificates loaded successfully');
+
+    // Iniciar servidor
+    app.listen(PORT, () => {
+      console.log('=================================================');
+      console.log('🚀 Apple Wallet Service STARTED');
+      console.log(`📡 Port: ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
+      console.log('✅ Ready to generate passes');
+      console.log('=================================================');
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Iniciar
+startServer();
