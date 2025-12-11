@@ -23,9 +23,9 @@ class CertificateManager {
 
     try {
       const hasLocalCerts = await this.checkLocalCertificates();
-      
+
       if (!hasLocalCerts) {
-        console.log('Local certificates not found, checking environment variables...');
+        console.log('📂 Local certificates not found, checking environment variables...');
         await this.loadCertificatesFromEnv();
       } else {
         console.log('✅ Using local certificate files');
@@ -33,8 +33,9 @@ class CertificateManager {
       }
 
       this.initialized = true;
+      console.log('✅ Certificate Manager initialized successfully');
     } catch (error) {
-      console.error('Error initializing certificates:', error);
+      console.error('❌ Error initializing certificates:', error);
       throw new Error('Failed to initialize certificates. Check your setup.');
     }
   }
@@ -44,7 +45,7 @@ class CertificateManager {
    */
   async checkLocalCertificates() {
     const requiredFiles = ['wwdr.pem', 'signerCert.pem', 'signerKey.pem'];
-    
+
     try {
       for (const file of requiredFiles) {
         await fs.access(path.join(this.certificatesPath, file));
@@ -76,35 +77,38 @@ class CertificateManager {
    * Carga certificados desde variables de entorno (base64)
    */
   async loadCertificatesFromEnv() {
+    // CORREGIDO: Usar los nombres correctos de las variables de entorno
     const certMapping = {
-      'CERT_WWDR': 'wwdr',
-      'CERT_SIGNER': 'signerCert',
-      'CERT_SIGNER_KEY': 'signerKey'
+      'APPLE_WWDR_CERT': 'wwdr',
+      'APPLE_SIGNER_CERT': 'signerCert',
+      'APPLE_SIGNER_KEY': 'signerKey'
     };
 
     let loaded = 0;
 
     for (const [envVar, key] of Object.entries(certMapping)) {
       const base64Cert = process.env[envVar];
-      
+
       if (base64Cert) {
         try {
           this.certificates[key] = Buffer.from(base64Cert, 'base64').toString('utf8');
-          console.log(`✅ Loaded ${key} from environment variable`);
+          console.log(`✅ Loaded ${key} from ${envVar}`);
           loaded++;
         } catch (error) {
-          console.error(`Error loading ${key}:`, error.message);
+          console.error(`❌ Error loading ${key} from ${envVar}:`, error.message);
         }
+      } else {
+        console.error(`❌ Environment variable ${envVar} not found`);
       }
     }
 
     if (loaded < 3) {
       throw new Error(
-        `Only ${loaded}/3 certificates loaded. Required: wwdr, signerCert, signerKey`
+        `Only ${loaded}/3 certificates loaded. Required: APPLE_WWDR_CERT, APPLE_SIGNER_CERT, APPLE_SIGNER_KEY`
       );
     }
 
-    console.log(`✅ ${loaded} certificates loaded from environment variables`);
+    console.log(`✅ All ${loaded} certificates loaded from environment variables`);
   }
 
   /**
@@ -134,7 +138,7 @@ class CertificateManager {
   validateCertificates() {
     const required = ['wwdr', 'signerCert', 'signerKey'];
     const missing = required.filter(cert => !this.certificates[cert]);
-    
+
     if (missing.length > 0) {
       throw new Error(`Missing certificates: ${missing.join(', ')}`);
     }
