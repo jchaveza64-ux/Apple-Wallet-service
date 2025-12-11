@@ -17,7 +17,7 @@ const router = express.Router();
 // ============================================
 // SISTEMA DE CACHÉ DE IMÁGENES
 // ============================================
-const imageCache = new Map(); // Guarda el hash de cada configuración
+const imageCache = new Map();
 
 /**
  * Genera un hash único para una configuración de imágenes
@@ -57,7 +57,6 @@ async function areImagesCached(templatePath) {
 async function cacheImages(appleConfig, templatePath, configId) {
   const configHash = getConfigHash(appleConfig);
   
-  // Verificar si ya están cacheadas con la misma configuración
   if (imageCache.get(configId) === configHash) {
     const cached = await areImagesCached(templatePath);
     if (cached) {
@@ -68,7 +67,6 @@ async function cacheImages(appleConfig, templatePath, configId) {
 
   console.log('📥 Downloading and caching images...');
 
-  // Descargar imágenes
   if (appleConfig.logo_url) {
     await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
     await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
@@ -87,7 +85,6 @@ async function cacheImages(appleConfig, templatePath, configId) {
     await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
   }
 
-  // Guardar hash en caché
   imageCache.set(configId, configHash);
   console.log('✅ Images cached successfully');
 }
@@ -194,12 +191,10 @@ async function generateUpdatedPass(serialNumber) {
   try {
     console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
 
-    // INICIALIZAR CERTIFICADOS PRIMERO
     console.log('📜 Initializing certificates...');
     await certificateManager.initialize();
     console.log('✅ Certificates initialized');
 
-    // Buscar el customer por card_number (serialNumber)
     console.log('🔍 Querying Supabase for loyalty card...');
     const { data: loyaltyCard, error: cardError } = await supabase
       .from('loyalty_cards')
@@ -234,7 +229,6 @@ async function generateUpdatedPass(serialNumber) {
       : loyaltyCard.customers;
 
     console.log('🔍 Querying form configs...');
-    // Obtener configuración
     const { data: formConfigs, error: configError } = await supabase
       .from('form_configurations')
       .select('*, passkit_configs(*)')
@@ -262,10 +256,8 @@ async function generateUpdatedPass(serialNumber) {
 
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
-    // CACHEAR IMÁGENES (solo descarga si no existen o cambiaron)
     await cacheImages(appleConfig, templatePath, passkitConfig.id);
 
-    // Crear pass
     console.log('🎨 Creating pass...');
     const pass = await PKPass.from(
       {
@@ -305,7 +297,6 @@ async function generateUpdatedPass(serialNumber) {
 
     console.log('📝 Adding fields with points:', loyaltyCard.current_points);
 
-    // Agregar campos
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
       pass.secondaryFields.push({
@@ -315,7 +306,6 @@ async function generateUpdatedPass(serialNumber) {
       });
     });
 
-    // Agregar backFields
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
       backsideTexts.forEach(item => {
@@ -343,7 +333,6 @@ async function generateUpdatedPass(serialNumber) {
       });
     }
 
-    // Agregar barcode
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
     pass.setBarcodes({
       message: barcodeMessage || customer.id,
@@ -351,8 +340,6 @@ async function generateUpdatedPass(serialNumber) {
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || ''
     });
-
-    // NO ELIMINAR IMÁGENES - quedan cacheadas para próximas actualizaciones
 
     console.log('📦 Generating buffer...');
     const buffer = pass.getAsBuffer();
@@ -381,7 +368,6 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
 
     console.log('📱 Registering device:', { deviceLibraryIdentifier, serialNumber, pushToken });
 
-    // Buscar customer por card_number
     const { data: loyaltyCard } = await supabase
       .from('loyalty_cards')
       .select('*, customers(*)')
@@ -396,7 +382,6 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       ? loyaltyCard.customers[0]
       : loyaltyCard.customers;
 
-    // Insertar o actualizar registro
     const { error } = await supabase
       .from('device_registrations')
       .upsert({
@@ -483,17 +468,14 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
 
     console.log('📦 Getting updated pass:', { serialNumber });
 
-    // VALIDACIÓN DE TOKEN DESHABILITADA TEMPORALMENTE
     console.log('ℹ️ Auth token validation skipped');
 
-    // Generar pass actualizado
     console.log('⏳ Calling generateUpdatedPass...');
     const passBuffer = await generateUpdatedPass(serialNumber);
     console.log('✅ generateUpdatedPass completed');
 
     console.log(`✅ Pass generated: ${passBuffer.length} bytes`);
 
-    // Actualizar lastModified
     await supabase
       .from('device_registrations')
       .update({ updated_at: new Date().toISOString() })
@@ -570,10 +552,18 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // Enviar push notification a cada dispositivo
+    // Enviar push notification VISIBLE a cada dispositivo
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
+      
+      // NOTIFICACIÓN VISIBLE
+      notification.alert = {
+        title: "¡Puntos actualizados!",
+        body: "Tus puntos de fidelidad han sido actualizados"
+      };
+      notification.sound = "default";
+      notification.badge = 1;
       notification.contentAvailable = true;
       notification.payload = {};
 
