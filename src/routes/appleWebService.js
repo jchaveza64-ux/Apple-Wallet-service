@@ -7,18 +7,96 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import https from 'https';
 import apn from 'apn';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
+// ============================================
+// SISTEMA DE CACHÉ DE IMÁGENES
+// ============================================
+const imageCache = new Map(); // Guarda el hash de cada configuración
+
+/**
+ * Genera un hash único para una configuración de imágenes
+ */
+function getConfigHash(appleConfig) {
+  const imageUrls = [
+    appleConfig.logo_url || '',
+    appleConfig.icon_url || '',
+    appleConfig.strip_image_url || ''
+  ].join('|');
+  return crypto.createHash('md5').update(imageUrls).digest('hex');
+}
+
+/**
+ * Verifica si las imágenes ya están cacheadas
+ */
+async function areImagesCached(templatePath) {
+  const requiredFiles = [
+    'logo.png', 'logo@2x.png', 'logo@3x.png',
+    'icon.png', 'icon@2x.png', 'icon@3x.png',
+    'strip.png', 'strip@2x.png', 'strip@3x.png'
+  ];
+
+  try {
+    for (const file of requiredFiles) {
+      await fs.access(path.join(templatePath, file));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Descarga y cachea imágenes para una configuración
+ */
+async function cacheImages(appleConfig, templatePath, configId) {
+  const configHash = getConfigHash(appleConfig);
+  
+  // Verificar si ya están cacheadas con la misma configuración
+  if (imageCache.get(configId) === configHash) {
+    const cached = await areImagesCached(templatePath);
+    if (cached) {
+      console.log('✅ Using cached images');
+      return;
+    }
+  }
+
+  console.log('📥 Downloading and caching images...');
+
+  // Descargar imágenes
+  if (appleConfig.logo_url) {
+    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
+    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
+    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+  }
+
+  if (appleConfig.icon_url) {
+    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
+    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
+    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+  }
+
+  if (appleConfig.strip_image_url) {
+    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+  }
+
+  // Guardar hash en caché
+  imageCache.set(configId, configHash);
+  console.log('✅ Images cached successfully');
+}
+
 /**
  * Configurar APNs provider
  */
 let apnsProvider = null;
 try {
-  // Convertir \n literal a saltos de línea reales
   const apnsKey = process.env.APPLE_APNS_KEY
     ? process.env.APPLE_APNS_KEY.replace(/\\n/g, '\n')
     : null;
@@ -34,7 +112,7 @@ try {
       },
       production: process.env.NODE_ENV === 'production'
     };
-    
+
     apnsProvider = new apn.Provider(apnsOptions);
     console.log('✅ APNs provider initialized');
   }
@@ -115,12 +193,12 @@ function getLinkHref(type, url) {
 async function generateUpdatedPass(serialNumber) {
   try {
     console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
-    
+
     // INICIALIZAR CERTIFICADOS PRIMERO
     console.log('📜 Initializing certificates...');
     await certificateManager.initialize();
     console.log('✅ Certificates initialized');
-    
+
     // Buscar el customer por card_number (serialNumber)
     console.log('🔍 Querying Supabase for loyalty card...');
     const { data: loyaltyCard, error: cardError } = await supabase
@@ -151,8 +229,8 @@ async function generateUpdatedPass(serialNumber) {
     console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
     console.log('✅ Loyalty card found');
 
-    const customer = Array.isArray(loyaltyCard.customers) 
-      ? loyaltyCard.customers[0] 
+    const customer = Array.isArray(loyaltyCard.customers)
+      ? loyaltyCard.customers[0]
       : loyaltyCard.customers;
 
     console.log('🔍 Querying form configs...');
@@ -182,28 +260,10 @@ async function generateUpdatedPass(serialNumber) {
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
-    // Descargar imágenes
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
-    console.log('📥 Downloading images...');
-    if (appleConfig.logo_url) {
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
-    }
-
-    if (appleConfig.icon_url) {
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
-    }
-
-    if (appleConfig.strip_image_url) {
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
-    }
-    console.log('✅ Images downloaded');
+    // CACHEAR IMÁGENES (solo descarga si no existen o cambiaron)
+    await cacheImages(appleConfig, templatePath, passkitConfig.id);
 
     // Crear pass
     console.log('🎨 Creating pass...');
@@ -292,26 +352,12 @@ async function generateUpdatedPass(serialNumber) {
       altText: barcodeConfig.alt_text || ''
     });
 
-    console.log('🗑️ Cleaning up images...');
-    // Limpiar imágenes
-    try {
-      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
-    } catch (cleanupError) {
-      // Ignorar errores
-    }
+    // NO ELIMINAR IMÁGENES - quedan cacheadas para próximas actualizaciones
 
     console.log('📦 Generating buffer...');
     const buffer = pass.getAsBuffer();
     console.log('✅ Pass generation completed successfully');
-    
+
     return buffer;
   } catch (error) {
     console.error('💥 CRITICAL ERROR in generateUpdatedPass:', error);
@@ -346,8 +392,8 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       return res.status(404).json({ error: 'Pass not found' });
     }
 
-    const customer = Array.isArray(loyaltyCard.customers) 
-      ? loyaltyCard.customers[0] 
+    const customer = Array.isArray(loyaltyCard.customers)
+      ? loyaltyCard.customers[0]
       : loyaltyCard.customers;
 
     // Insertar o actualizar registro
