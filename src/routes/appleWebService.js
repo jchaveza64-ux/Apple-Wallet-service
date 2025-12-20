@@ -341,6 +341,41 @@ async function generateUpdatedPass(serialNumber) {
       altText: barcodeConfig.alt_text || ''
     });
 
+    // ⭐ NUEVO CÓDIGO - MENSAJES APPLE WALLET ⭐
+    console.log('💬 Querying apple_wallet_messages...');
+    const { data: messages, error: messagesError } = await supabase
+      .from('apple_wallet_messages')
+      .select('message_text, created_at')
+      .eq('card_number', serialNumber)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (messagesError) {
+      console.error('⚠️ Error querying messages:', messagesError);
+    } else if (messages && messages.length > 0) {
+      console.log(`📬 Adding ${messages.length} messages to pass`);
+      
+      messages.forEach((msg, index) => {
+        const dateLabel = new Date(msg.created_at).toLocaleDateString('es-ES', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        pass.backFields.push({
+          key: `apple_message_${index}`,
+          label: dateLabel,
+          value: msg.message_text
+        });
+      });
+      
+      console.log('✅ Messages added to pass');
+    } else {
+      console.log('ℹ️ No messages found for this pass');
+    }
+    // ⭐ FIN NUEVO CÓDIGO ⭐
+
     console.log('📦 Generating buffer...');
     const buffer = pass.getAsBuffer();
     console.log('✅ Pass generation completed successfully');
