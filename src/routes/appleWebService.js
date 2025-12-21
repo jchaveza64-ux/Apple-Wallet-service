@@ -588,15 +588,42 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // Enviar push notification VISIBLE a cada dispositivo
+    // Obtener el mensaje más reciente de apple_wallet_messages
+    const { data: messages } = await supabase
+      .from('apple_wallet_messages')
+      .select('message_text, message_type')
+      .eq('card_number', serialNumber)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    let notificationTitle = "¡Tarjeta actualizada!";
+    let notificationBody = "Tu tarjeta de fidelidad ha sido actualizada";
+
+    if (messages && messages.length > 0) {
+      const latestMessage = messages[0];
+      
+      // Personalizar título según tipo de mensaje
+      if (latestMessage.message_type === 'points') {
+        notificationTitle = "✨ ¡Puntos Actualizados!";
+      } else if (latestMessage.message_type === 'reward') {
+        notificationTitle = "🎉 ¡Nueva Recompensa!";
+      } else if (latestMessage.message_type === 'redemption') {
+        notificationTitle = "🎁 ¡Recompensa Canjeada!";
+      } else if (latestMessage.message_type === 'manual') {
+        notificationTitle = "📢 Notificación";
+      }
+      
+      notificationBody = latestMessage.message_text;
+    }
+
+    // Enviar push notification con mensaje personalizado
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
       
-      // NOTIFICACIÓN VISIBLE
       notification.alert = {
-        title: "¡Puntos actualizados!",
-        body: "Tus puntos de fidelidad han sido actualizados"
+        title: notificationTitle,
+        body: notificationBody
       };
       notification.sound = "default";
       notification.badge = 1;
@@ -615,7 +642,7 @@ router.post('/notify-update', async (req, res) => {
 
     await Promise.all(promises);
 
-    console.log(`✅ Sent ${promises.length} push notifications`);
+    console.log(`✅ Sent ${promises.length} push notifications with message: ${notificationBody}`);
     res.json({ message: `Notified ${promises.length} devices` });
 
   } catch (error) {
