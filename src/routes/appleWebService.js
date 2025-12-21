@@ -254,6 +254,26 @@ async function generateUpdatedPass(serialNumber) {
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
+    // ⭐ CONSULTAR UBICACIONES VINCULADAS ⭐
+    console.log('📍 Querying linked locations...');
+    const { data: linkedLocations, error: locationsError } = await supabase
+      .from('passkit_config_locations')
+      .select(`
+        location_id,
+        locations (
+          id,
+          name,
+          latitude,
+          longitude,
+          address
+        )
+      `)
+      .eq('passkit_config_id', passkitConfig.id);
+
+    if (locationsError) {
+      console.error('⚠️ Error querying locations:', locationsError);
+    }
+
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
     await cacheImages(appleConfig, templatePath, passkitConfig.id);
@@ -281,6 +301,26 @@ async function generateUpdatedPass(serialNumber) {
 
     pass.type = 'storeCard';
     pass.relevantDate = new Date().toISOString();
+
+    // ⭐ AGREGAR UBICACIONES AL PASS ⭐
+    if (linkedLocations && linkedLocations.length > 0) {
+      const validLocations = linkedLocations
+        .filter(loc => loc.locations && loc.locations.latitude && loc.locations.longitude)
+        .map(loc => ({
+          latitude: Number(loc.locations.latitude),
+          longitude: Number(loc.locations.longitude),
+          relevantText: `Visita ${loc.locations.name || 'nuestro local'}`
+        }));
+
+      if (validLocations.length > 0) {
+        pass.locations = validLocations;
+        console.log(`📍 Added ${validLocations.length} locations to pass`);
+      } else {
+        console.log('ℹ️ No valid locations found (missing coordinates)');
+      }
+    } else {
+      console.log('ℹ️ No locations linked to passkit_config');
+    }
 
     const templateData = {
       customer: {
