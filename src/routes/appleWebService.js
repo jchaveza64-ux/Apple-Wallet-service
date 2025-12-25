@@ -14,58 +14,12 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// ============================================
-// SISTEMA DE CACHÉ DE IMÁGENES
-// ============================================
-const imageCache = new Map();
-
 /**
- * Genera un hash único para una configuración de imágenes
+ * Descarga imágenes para una configuración
+ * SIEMPRE descarga para evitar usar imágenes de otra config
  */
-function getConfigHash(appleConfig) {
-  const imageUrls = [
-    appleConfig.logo_url || '',
-    appleConfig.icon_url || '',
-    appleConfig.strip_image_url || ''
-  ].join('|');
-  return crypto.createHash('md5').update(imageUrls).digest('hex');
-}
-
-/**
- * Verifica si las imágenes ya están cacheadas
- */
-async function areImagesCached(templatePath) {
-  const requiredFiles = [
-    'logo.png', 'logo@2x.png', 'logo@3x.png',
-    'icon.png', 'icon@2x.png', 'icon@3x.png',
-    'strip.png', 'strip@2x.png', 'strip@3x.png'
-  ];
-
-  try {
-    for (const file of requiredFiles) {
-      await fs.access(path.join(templatePath, file));
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Descarga y cachea imágenes para una configuración
- */
-async function cacheImages(appleConfig, templatePath, configId) {
-  const configHash = getConfigHash(appleConfig);
-  
-  if (imageCache.get(configId) === configHash) {
-    const cached = await areImagesCached(templatePath);
-    if (cached) {
-      console.log('✅ Using cached images');
-      return;
-    }
-  }
-
-  console.log('📥 Downloading and caching images...');
+async function downloadConfigImages(appleConfig, templatePath) {
+  console.log('📥 Downloading images for this config...');
 
   if (appleConfig.logo_url) {
     await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
@@ -85,8 +39,7 @@ async function cacheImages(appleConfig, templatePath, configId) {
     await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
   }
 
-  imageCache.set(configId, configHash);
-  console.log('✅ Images cached successfully');
+  console.log('✅ Images downloaded successfully');
 }
 
 /**
@@ -283,7 +236,7 @@ async function generateUpdatedPass(serialNumber) {
     // No hay problema de sobrescritura porque la generación es SINCRÓNICA
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
-    await cacheImages(appleConfig, templatePath, passkitConfig.id);
+    await downloadConfigImages(appleConfig, templatePath);
 
     console.log('🎨 Creating pass...');
     const pass = await PKPass.from(
