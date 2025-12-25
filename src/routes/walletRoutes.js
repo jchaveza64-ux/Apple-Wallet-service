@@ -167,8 +167,10 @@ router.get('/wallet', async (req, res) => {
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
-    // ✅ FIX: Usar directorio único por configuración para evitar sobrescritura de imágenes
-    const templatePath = path.join(__dirname, `../templates/${configId}`);
+    // ✅ USAR TEMPLATE BASE COMPARTIDO
+    // Cada generación descarga sus propias imágenes antes de generar
+    // No hay problema de sobrescritura porque la generación es SINCRÓNICA
+    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
     // ============================================
     // 5. DESCARGAR IMÁGENES
@@ -280,21 +282,9 @@ router.get('/wallet', async (req, res) => {
       altText: barcodeConfig.alt_text || ''
     });
 
-    console.log('🗑️ Cleaning up images...');
-    // Limpiar imágenes
-    try {
-      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
-      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
-    } catch (cleanupError) {
-      // Ignorar errores
-    }
+    // ✅ NO BORRAR IMÁGENES
+    // Las imágenes se mantienen en disco para acelerar generaciones futuras
+    // Cada generación sobrescribe con sus propias imágenes antes de crear el pass
 
     console.log('📦 Generating buffer...');
     const buffer = pass.getAsBuffer();
