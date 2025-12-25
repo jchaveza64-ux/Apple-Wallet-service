@@ -278,7 +278,8 @@ async function generateUpdatedPass(serialNumber) {
       console.error('⚠️ Error querying locations:', locationsError);
     }
 
-    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
+    // ✅ FIX: Usar directorio único por configuración para evitar sobrescritura de imágenes
+    const templatePath = path.join(__dirname, `../templates/${passkitConfig.id}`);
 
     await cacheImages(appleConfig, templatePath, passkitConfig.id);
 

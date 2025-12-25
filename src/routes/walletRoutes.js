@@ -167,7 +167,8 @@ router.get('/wallet', async (req, res) => {
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
-    const templatePath = path.join(__dirname, '../templates/loyalty.pass');
+    // ✅ FIX: Usar directorio único por configuración para evitar sobrescritura de imágenes
+    const templatePath = path.join(__dirname, `../templates/${configId}`);
 
     // ============================================
     // 5. DESCARGAR IMÁGENES
