@@ -14,32 +14,55 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
+// ============================================
+// SISTEMA DE LOCKS PARA EVITAR RACE CONDITIONS
+// ============================================
+const downloadLocks = new Map();
+
+async function acquireLock(key) {
+  while (downloadLocks.get(key)) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  downloadLocks.set(key, true);
+}
+
+function releaseLock(key) {
+  downloadLocks.delete(key);
+}
+
 /**
  * Descarga imágenes para una configuración
- * SIEMPRE descarga para evitar usar imágenes de otra config
+ * USA LOCK para evitar que múltiples requests sobrescriban imágenes
  */
 async function downloadConfigImages(appleConfig, templatePath) {
-  console.log('📥 Downloading images for this config...');
+  const lockKey = 'image-download';
+  
+  try {
+    await acquireLock(lockKey);
+    console.log('📥 Downloading images for this config (LOCKED)...');
 
-  if (appleConfig.logo_url) {
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-    await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+    if (appleConfig.logo_url) {
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
+      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+    }
+
+    if (appleConfig.icon_url) {
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
+      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+    }
+
+    if (appleConfig.strip_image_url) {
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+    }
+
+    console.log('✅ Images downloaded successfully');
+  } finally {
+    releaseLock(lockKey);
   }
-
-  if (appleConfig.icon_url) {
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-    await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
-  }
-
-  if (appleConfig.strip_image_url) {
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-    await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
-  }
-
-  console.log('✅ Images downloaded successfully');
 }
 
 /**
