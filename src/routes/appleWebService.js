@@ -228,26 +228,30 @@ async function generateUpdatedPass(serialNumber) {
       ? loyaltyCard.customers[0]
       : loyaltyCard.customers;
 
-    console.log('🔍 Querying form configs...');
-    const { data: formConfigs, error: configError } = await supabase
-      .from('form_configurations')
-      .select('*, passkit_configs(*)')
-      .eq('business_id', customer.business_id)
-      .limit(1);
+    // ============================================
+    // 🔥 FIX CRÍTICO: Usar passkit_config_id de loyalty_card
+    // ============================================
+    console.log('🔍 Querying passkit_configs using loyalty card config_id...');
+    console.log('Using passkit_config_id:', loyaltyCard.passkit_config_id);
+    
+    const { data: passkitConfig, error: configError } = await supabase
+      .from('passkit_configs')
+      .select('*')
+      .eq('id', loyaltyCard.passkit_config_id)
+      .single();
 
     if (configError) {
       console.error('❌ Config error:', configError);
       throw new Error(`Config error: ${configError.message}`);
     }
 
-    if (!formConfigs || formConfigs.length === 0) {
+    if (!passkitConfig) {
       console.error('❌ Config not found');
       throw new Error('Config not found');
     }
 
-    console.log('✅ Config found');
-
-    const passkitConfig = formConfigs[0].passkit_configs;
+    console.log('✅ Config found:', passkitConfig.config_name);
+    console.log('✅ Using correct config_id:', passkitConfig.id);
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
