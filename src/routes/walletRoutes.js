@@ -215,12 +215,12 @@ router.get('/wallet', async (req, res) => {
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-        authenticationToken: loyaltyCard.card_number,
-        relevantDate: new Date().toISOString()
+        authenticationToken: loyaltyCard.card_number
       }
     );
 
     pass.type = 'storeCard';
+    pass.relevantDate = new Date().toISOString();
 
     const templateData = {
       customer: {
