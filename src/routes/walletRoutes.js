@@ -1,7 +1,7 @@
 import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { PKPass } from 'passkit-generator';
-import certificateManager from '../config/certificates.js'; //
+import certificateManager from '../config/certificates.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -215,12 +215,12 @@ router.get('/wallet', async (req, res) => {
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-        authenticationToken: loyaltyCard.card_number
+        authenticationToken: loyaltyCard.card_number,
+        relevantDate: new Date().toISOString()
       }
     );
 
     pass.type = 'storeCard';
-    pass.relevantDate = new Date().toISOString();
 
     const templateData = {
       customer: {
