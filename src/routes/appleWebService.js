@@ -228,6 +228,7 @@ async function generateUpdatedPass(serialNumber) {
 
     console.log('✅ Config found:', passkitConfig.config_name);
     console.log('✅ Using correct config_id:', passkitConfig.id);
+
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
@@ -261,26 +262,43 @@ async function generateUpdatedPass(serialNumber) {
 
     await downloadConfigImages(appleConfig, templatePath);
 
-    // ⭐ PREPARAR LOCATIONS ANTES DE CREAR EL PASS ⭐
+    // ⭐ PREPARAR LOCATIONS (RELEVANCIA LOCK SCREEN) ⭐
+    // Apple Wallet usa "locations" + "maxDistance" para sugerir en Lock Screen. :contentReference[oaicite:1]{index=1}
     let passLocations = undefined;
+
     if (linkedLocations && linkedLocations.length > 0) {
       const validLocations = linkedLocations
-        .filter(loc => loc.locations && loc.locations.latitude && loc.locations.longitude)
-        .map(loc => ({
-          latitude: Number(loc.locations.latitude),
-          longitude: Number(loc.locations.longitude),
-          relevantText: `Visita ${loc.locations.name || 'nuestro local'}`
-        }));
-      
+        .filter(loc => loc.locations && loc.locations.latitude != null && loc.locations.longitude != null)
+        .map(loc => {
+          const lat = Number(loc.locations.latitude);
+          const lng = Number(loc.locations.longitude);
+
+          // Evitar NaN/Infinity
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+          return {
+            latitude: lat,
+            longitude: lng,
+            // Opcional: texto que puede mostrarse en lock screen cuando sea relevante
+            relevantText: loc.locations.name
+              ? `Cerca de ${loc.locations.name}`
+              : 'Local cercano'
+          };
+        })
+        .filter(Boolean);
+
       if (validLocations.length > 0) {
-        passLocations = validLocations;
-        console.log(`📍 Will add ${validLocations.length} locations to pass`);
+        passLocations = validLocations.slice(0, 10); // Apple limita a 10 locations por pass (buena práctica)
+        console.log(`📍 Will add ${passLocations.length} locations to pass (lock screen relevance)`);
       } else {
-        console.log('ℹ️ No valid locations found (missing coordinates)');
+        console.log('ℹ️ No valid locations found (missing/invalid coordinates)');
       }
     } else {
       console.log('ℹ️ No locations linked to passkit_config');
     }
+
+    const maxDistance = Number(appleConfig.max_distance || 200);
+    const safeMaxDistance = Number.isFinite(maxDistance) && maxDistance > 0 ? maxDistance : 200;
 
     console.log('🎨 Creating pass...');
     const pass = await PKPass.from(
@@ -300,11 +318,23 @@ async function generateUpdatedPass(serialNumber) {
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
         authenticationToken: serialNumber,
-        ...(passLocations && { locations: passLocations })
+
+        // ✅ Relevancia para lock screen (CLAVE)
+        ...(passLocations && { locations: passLocations }),
+        ...(passLocations && { maxDistance: safeMaxDistance })
       }
     );
 
     pass.type = 'storeCard';
+
+    // ✅ Safety-net: asegurar que quede en el pass final aunque el lib ignore el spread por alguna razón
+    if (passLocations) {
+      pass.locations = passLocations;
+      pass.maxDistance = safeMaxDistance;
+      console.log(`✅ Applied locations+maxDistance directly on pass object (maxDistance=${safeMaxDistance}m)`);
+    }
+
+    // Puedes dejarlo así por ahora; luego lo hacemos opcional por campaña
     pass.relevantDate = new Date().toISOString();
 
     const templateData = {
