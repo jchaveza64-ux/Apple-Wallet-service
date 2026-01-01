@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import { supabase } from '../config/supabase.js';
 import { PKPass } from 'passkit-generator';
 import certificateManager from '../config/certificates.js';
@@ -31,15 +31,15 @@ function releaseLock(key) {
 }
 
 /**
- * Descarga imágenes para una configuración
- * USA LOCK para evitar que múltiples requests sobrescriban imágenes
+ * Descarga imÃ¡genes para una configuraciÃ³n
+ * USA LOCK para evitar que mÃºltiples requests sobrescriban imÃ¡genes
  */
 async function downloadConfigImages(appleConfig, templatePath) {
   const lockKey = 'image-download';
   
   try {
     await acquireLock(lockKey);
-    console.log('📥 Downloading images for this config (LOCKED)...');
+    console.log('ðŸ“¥ Downloading images for this config (LOCKED)...');
 
     if (appleConfig.logo_url) {
       await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
@@ -59,7 +59,7 @@ async function downloadConfigImages(appleConfig, templatePath) {
       await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
     }
 
-    console.log('✅ Images downloaded successfully');
+    console.log('âœ… Images downloaded successfully');
   } finally {
     releaseLock(lockKey);
   }
@@ -75,7 +75,7 @@ try {
     : null;
 
   if (!apnsKey || !process.env.APPLE_APNS_KEY_ID || !process.env.TEAM_IDENTIFIER) {
-    console.log('⚠️ APNs credentials not configured - push notifications disabled');
+    console.log('âš ï¸ APNs credentials not configured - push notifications disabled');
   } else {
     const apnsOptions = {
       token: {
@@ -87,10 +87,10 @@ try {
     };
 
     apnsProvider = new apn.Provider(apnsOptions);
-    console.log('✅ APNs provider initialized');
+    console.log('âœ… APNs provider initialized');
   }
 } catch (error) {
-  console.error('❌ Failed to initialize APNs:', error.message);
+  console.error('âŒ Failed to initialize APNs:', error.message);
 }
 
 /**
@@ -145,7 +145,7 @@ function processTemplate(template, data) {
 }
 
 /**
- * Obtiene href según tipo de link
+ * Obtiene href segÃºn tipo de link
  */
 function getLinkHref(type, url) {
   switch(type) {
@@ -165,13 +165,13 @@ function getLinkHref(type, url) {
  */
 async function generateUpdatedPass(serialNumber) {
   try {
-    console.log('🔄 Starting generateUpdatedPass for:', serialNumber);
+    console.log('ðŸ”„ Starting generateUpdatedPass for:', serialNumber);
 
-    console.log('📜 Initializing certificates...');
+    console.log('ðŸ“œ Initializing certificates...');
     await certificateManager.initialize();
-    console.log('✅ Certificates initialized');
+    console.log('âœ… Certificates initialized');
 
-    console.log('🔍 Querying Supabase for loyalty card...');
+    console.log('ðŸ” Querying Supabase for loyalty card...');
     const { data: loyaltyCard, error: cardError } = await supabase
       .from('loyalty_cards')
       .select(`
@@ -188,26 +188,26 @@ async function generateUpdatedPass(serialNumber) {
       .single();
 
     if (cardError) {
-      console.error('❌ Supabase error:', cardError);
+      console.error('âŒ Supabase error:', cardError);
       throw new Error(`Supabase error: ${cardError.message}`);
     }
 
     if (!loyaltyCard) {
-      console.error('❌ Loyalty card not found');
+      console.error('âŒ Loyalty card not found');
       throw new Error('Loyalty card not found');
     }
 
-    console.log('🔍 DEBUG - Points from Supabase:', loyaltyCard.current_points);
-    console.log('✅ Loyalty card found');
+    console.log('ðŸ” DEBUG - Points from Supabase:', loyaltyCard.current_points);
+    console.log('âœ… Loyalty card found');
 
     const customer = Array.isArray(loyaltyCard.customers)
       ? loyaltyCard.customers[0]
       : loyaltyCard.customers;
 
     // ============================================
-    // 🔥 FIX CRÍTICO: Usar passkit_config_id de loyalty_card
+    // ðŸ”¥ FIX CRÃTICO: Usar passkit_config_id de loyalty_card
     // ============================================
-    console.log('🔍 Querying passkit_configs using loyalty card config_id...');
+    console.log('ðŸ” Querying passkit_configs using loyalty card config_id...');
     console.log('Using passkit_config_id:', loyaltyCard.passkit_config_id);
     
     const { data: passkitConfig, error: configError } = await supabase
@@ -217,25 +217,25 @@ async function generateUpdatedPass(serialNumber) {
       .single();
 
     if (configError) {
-      console.error('❌ Config error:', configError);
+      console.error('âŒ Config error:', configError);
       throw new Error(`Config error: ${configError.message}`);
     }
 
     if (!passkitConfig) {
-      console.error('❌ Config not found');
+      console.error('âŒ Config not found');
       throw new Error('Config not found');
     }
 
-    console.log('✅ Config found:', passkitConfig.config_name);
-    console.log('✅ Using correct config_id:', passkitConfig.id);
+    console.log('âœ… Config found:', passkitConfig.config_name);
+    console.log('âœ… Using correct config_id:', passkitConfig.id);
     const appleConfig = passkitConfig.apple_config || {};
     const memberFields = passkitConfig.member_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
 
-    // ⭐ CONSULTAR UBICACIONES VINCULADAS ⭐
-    console.log('📍 Querying linked locations...');
+    // â­ CONSULTAR UBICACIONES VINCULADAS â­
+    console.log('ðŸ“ Querying linked locations...');
     const { data: linkedLocations, error: locationsError } = await supabase
       .from('passkit_config_locations')
       .select(`
@@ -251,38 +251,17 @@ async function generateUpdatedPass(serialNumber) {
       .eq('passkit_config_id', passkitConfig.id);
 
     if (locationsError) {
-      console.error('⚠️ Error querying locations:', locationsError);
+      console.error('âš ï¸ Error querying locations:', locationsError);
     }
 
-    // ✅ USAR TEMPLATE BASE COMPARTIDO
-    // Cada generación descarga sus propias imágenes antes de generar
-    // No hay problema de sobrescritura porque la generación es SINCRÓNICA
+    // âœ… USAR TEMPLATE BASE COMPARTIDO
+    // Cada generaciÃ³n descarga sus propias imÃ¡genes antes de generar
+    // No hay problema de sobrescritura porque la generaciÃ³n es SINCRÃ“NICA
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
     await downloadConfigImages(appleConfig, templatePath);
 
-    // ⭐ PREPARAR LOCATIONS ANTES DE CREAR EL PASS ⭐
-    let passLocations = undefined;
-    if (linkedLocations && linkedLocations.length > 0) {
-      const validLocations = linkedLocations
-        .filter(loc => loc.locations && loc.locations.latitude && loc.locations.longitude)
-        .map(loc => ({
-          latitude: Number(loc.locations.latitude),
-          longitude: Number(loc.locations.longitude),
-          relevantText: `Visita ${loc.locations.name || 'nuestro local'}`
-        }));
-      
-      if (validLocations.length > 0) {
-        passLocations = validLocations;
-        console.log(`📍 Will add ${validLocations.length} locations to pass`);
-      } else {
-        console.log('ℹ️ No valid locations found (missing coordinates)');
-      }
-    } else {
-      console.log('ℹ️ No locations linked to passkit_config');
-    }
-
-    console.log('🎨 Creating pass...');
+    console.log('ðŸŽ¨ Creating pass...');
     const pass = await PKPass.from(
       {
         model: templatePath,
@@ -299,13 +278,32 @@ async function generateUpdatedPass(serialNumber) {
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-        authenticationToken: serialNumber,
-        ...(passLocations && { locations: passLocations })
+        authenticationToken: serialNumber
       }
     );
 
     pass.type = 'storeCard';
     pass.relevantDate = new Date().toISOString();
+
+    // â­ AGREGAR UBICACIONES AL PASS â­
+    if (linkedLocations && linkedLocations.length > 0) {
+      const validLocations = linkedLocations
+        .filter(loc => loc.locations && loc.locations.latitude && loc.locations.longitude)
+        .map(loc => ({
+          latitude: Number(loc.locations.latitude),
+          longitude: Number(loc.locations.longitude),
+          relevantText: `Visita ${loc.locations.name || 'nuestro local'}`
+        }));
+
+      if (validLocations.length > 0) {
+        pass.locations = validLocations;
+        console.log(`ðŸ“ Added ${validLocations.length} locations to pass`);
+      } else {
+        console.log('â„¹ï¸ No valid locations found (missing coordinates)');
+      }
+    } else {
+      console.log('â„¹ï¸ No locations linked to passkit_config');
+    }
 
     const templateData = {
       customer: {
@@ -320,7 +318,7 @@ async function generateUpdatedPass(serialNumber) {
       }
     };
 
-    console.log('📝 Adding fields with points:', loyaltyCard.current_points);
+    console.log('ðŸ“ Adding fields with points:', loyaltyCard.current_points);
 
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
@@ -331,8 +329,8 @@ async function generateUpdatedPass(serialNumber) {
       });
     });
 
-    // ⭐ MENSAJES APPLE WALLET - PRIMERO (APARECEN ARRIBA) ⭐
-    console.log('💬 Querying apple_wallet_messages...');
+    // â­ MENSAJES APPLE WALLET - PRIMERO (APARECEN ARRIBA) â­
+    console.log('ðŸ’¬ Querying apple_wallet_messages...');
     const { data: messages, error: messagesError } = await supabase
       .from('apple_wallet_messages')
       .select('message_text, created_at')
@@ -341,9 +339,9 @@ async function generateUpdatedPass(serialNumber) {
       .limit(3);
 
     if (messagesError) {
-      console.error('⚠️ Error querying messages:', messagesError);
+      console.error('âš ï¸ Error querying messages:', messagesError);
     } else if (messages && messages.length > 0) {
-      console.log(`📬 Adding ${messages.length} messages to pass (AT TOP)`);
+      console.log(`ðŸ“¬ Adding ${messages.length} messages to pass (AT TOP)`);
       
       messages.forEach((msg, index) => {
         const dateLabel = new Date(msg.created_at).toLocaleDateString('es-ES', {
@@ -361,11 +359,11 @@ async function generateUpdatedPass(serialNumber) {
         });
       });
       
-      console.log('✅ Messages added to top of backFields');
+      console.log('âœ… Messages added to top of backFields');
     } else {
-      console.log('ℹ️ No messages found for this pass');
+      console.log('â„¹ï¸ No messages found for this pass');
     }
-    // ⭐ FIN MENSAJES ⭐
+    // â­ FIN MENSAJES â­
 
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
@@ -402,13 +400,13 @@ async function generateUpdatedPass(serialNumber) {
       altText: barcodeConfig.alt_text || ''
     });
 
-    console.log('📦 Generating buffer...');
+    console.log('ðŸ“¦ Generating buffer...');
     const buffer = pass.getAsBuffer();
-    console.log('✅ Pass generation completed successfully');
+    console.log('âœ… Pass generation completed successfully');
 
     return buffer;
   } catch (error) {
-    console.error('💥 CRITICAL ERROR in generateUpdatedPass:', error);
+    console.error('ðŸ’¥ CRITICAL ERROR in generateUpdatedPass:', error);
     console.error('Stack trace:', error.stack);
     throw error;
   }
@@ -427,7 +425,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       return res.status(400).json({ error: 'pushToken required' });
     }
 
-    console.log('📱 Registering device:', { deviceLibraryIdentifier, serialNumber, pushToken });
+    console.log('ðŸ“± Registering device:', { deviceLibraryIdentifier, serialNumber, pushToken });
 
     const { data: loyaltyCard } = await supabase
       .from('loyalty_cards')
@@ -459,15 +457,15 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       });
 
     if (error) {
-      console.error('❌ Registration error:', error);
+      console.error('âŒ Registration error:', error);
       return res.status(500).json({ error: error.message });
     }
 
-    console.log('✅ Device registered successfully');
+    console.log('âœ… Device registered successfully');
     res.status(201).send();
 
   } catch (error) {
-    console.error('❌ Registration failed:', error);
+    console.error('âŒ Registration failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -480,7 +478,7 @@ router.get('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifi
     const { deviceLibraryIdentifier, passTypeIdentifier } = req.params;
     const { passesUpdatedSince } = req.query;
 
-    console.log('🔍 Getting updatable passes:', { deviceLibraryIdentifier, passesUpdatedSince });
+    console.log('ðŸ” Getting updatable passes:', { deviceLibraryIdentifier, passesUpdatedSince });
 
     let query = supabase
       .from('device_registrations')
@@ -495,7 +493,7 @@ router.get('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifi
     const { data, error } = await query;
 
     if (error) {
-      console.error('❌ Query error:', error);
+      console.error('âŒ Query error:', error);
       return res.status(500).json({ error: error.message });
     }
 
@@ -506,7 +504,7 @@ router.get('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifi
     const serialNumbers = data.map(d => d.serial_number);
     const lastUpdated = new Date(Math.max(...data.map(d => new Date(d.updated_at)))).toISOString();
 
-    console.log(`✅ Found ${serialNumbers.length} updatable passes`);
+    console.log(`âœ… Found ${serialNumbers.length} updatable passes`);
 
     res.json({
       lastUpdated,
@@ -514,7 +512,7 @@ router.get('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifi
     });
 
   } catch (error) {
-    console.error('❌ Failed to get passes:', error);
+    console.error('âŒ Failed to get passes:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -527,15 +525,15 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
     const { serialNumber } = req.params;
     const authToken = req.headers['authorization']?.replace('ApplePass ', '');
 
-    console.log('📦 Getting updated pass:', { serialNumber });
+    console.log('ðŸ“¦ Getting updated pass:', { serialNumber });
 
-    console.log('ℹ️ Auth token validation skipped');
+    console.log('â„¹ï¸ Auth token validation skipped');
 
-    console.log('⏳ Calling generateUpdatedPass...');
+    console.log('â³ Calling generateUpdatedPass...');
     const passBuffer = await generateUpdatedPass(serialNumber);
-    console.log('✅ generateUpdatedPass completed');
+    console.log('âœ… generateUpdatedPass completed');
 
-    console.log(`✅ Pass generated: ${passBuffer.length} bytes`);
+    console.log(`âœ… Pass generated: ${passBuffer.length} bytes`);
 
     await supabase
       .from('device_registrations')
@@ -547,7 +545,7 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
     res.send(passBuffer);
 
   } catch (error) {
-    console.error('❌ Failed to generate pass:', error);
+    console.error('âŒ Failed to generate pass:', error);
     console.error('Error details:', error.message);
     console.error('Stack:', error.stack);
     res.status(500).json({ error: error.message });
@@ -561,7 +559,7 @@ router.delete('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdent
   try {
     const { deviceLibraryIdentifier, passTypeIdentifier, serialNumber } = req.params;
 
-    console.log('🗑️ Unregistering device:', { deviceLibraryIdentifier, serialNumber });
+    console.log('ðŸ—‘ï¸ Unregistering device:', { deviceLibraryIdentifier, serialNumber });
 
     const { error } = await supabase
       .from('device_registrations')
@@ -571,15 +569,15 @@ router.delete('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdent
       .eq('serial_number', serialNumber);
 
     if (error) {
-      console.error('❌ Unregister error:', error);
+      console.error('âŒ Unregister error:', error);
       return res.status(500).json({ error: error.message });
     }
 
-    console.log('✅ Device unregistered');
+    console.log('âœ… Device unregistered');
     res.status(200).send();
 
   } catch (error) {
-    console.error('❌ Unregister failed:', error);
+    console.error('âŒ Unregister failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -595,7 +593,7 @@ router.post('/notify-update', async (req, res) => {
       return res.status(400).json({ error: 'serialNumber required' });
     }
 
-    console.log('🔔 Sending EMPTY push notification for:', serialNumber);
+    console.log('ðŸ”” Sending EMPTY push notification for:', serialNumber);
 
     // Buscar todos los dispositivos registrados para este pass
     const { data: registrations, error } = await supabase
@@ -604,41 +602,41 @@ router.post('/notify-update', async (req, res) => {
       .eq('serial_number', serialNumber);
 
     if (error || !registrations || registrations.length === 0) {
-      console.log('⚠️ No registered devices found');
+      console.log('âš ï¸ No registered devices found');
       return res.status(200).json({ message: 'No devices to notify' });
     }
 
     if (!apnsProvider) {
-      console.error('❌ APNs provider not initialized');
+      console.error('âŒ APNs provider not initialized');
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // ⭐ ENVIAR PUSH VACÍO - Apple Wallet maneja la notificación automáticamente
+    // â­ ENVIAR PUSH VACÃO - Apple Wallet maneja la notificaciÃ³n automÃ¡ticamente
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
       
-      // 🎯 PAYLOAD VACÍO - SIN alert, SIN sound, SIN contentAvailable
-      // Apple Wallet detecta automáticamente el cambio y muestra la notificación
+      // ðŸŽ¯ PAYLOAD VACÃO - SIN alert, SIN sound, SIN contentAvailable
+      // Apple Wallet detecta automÃ¡ticamente el cambio y muestra la notificaciÃ³n
       notification.payload = {};
 
       try {
         const result = await apnsProvider.send(notification, registration.push_token);
-        console.log('📤 Empty push sent:', result);
+        console.log('ðŸ“¤ Empty push sent:', result);
         return result;
       } catch (err) {
-        console.error('❌ Push failed:', err);
+        console.error('âŒ Push failed:', err);
         return null;
       }
     });
 
     await Promise.all(promises);
 
-    console.log(`✅ Sent ${promises.length} EMPTY push notifications`);
+    console.log(`âœ… Sent ${promises.length} EMPTY push notifications`);
     res.json({ message: `Notified ${promises.length} devices` });
 
   } catch (error) {
-    console.error('❌ Notification failed:', error);
+    console.error('âŒ Notification failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
