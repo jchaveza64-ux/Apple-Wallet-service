@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 /**
- * Convierte HEX a RGB
+ * Convierte HEX a RGB para Apple Wallet
  */
 function hexToRgb(hex) {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -25,13 +25,17 @@ function hexToRgb(hex) {
 }
 
 /**
- * Descarga imagen desde URL
+ * Descarga una imagen desde URL y la guarda en el template
  */
 async function downloadImage(url, destPath) {
   return new Promise((resolve, reject) => {
     https.get(url, (response) => {
       const chunks = [];
-      response.on('data', (chunk) => chunks.push(chunk));
+      
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
       response.on('end', async () => {
         try {
           const buffer = Buffer.concat(chunks);
@@ -41,27 +45,35 @@ async function downloadImage(url, destPath) {
           reject(err);
         }
       });
-    }).on('error', reject);
+    }).on('error', (err) => {
+      reject(err);
+    });
   });
 }
 
 /**
- * Procesa template
+ * Procesa template de valores dinámicos
  */
 function processTemplate(template, data) {
   if (!template) return '';
+  
   let result = template;
+  
+  // Reemplazar {{customers.field}}
   result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => {
     return data.customer?.[field] || '';
   });
+  
+  // Reemplazar {{loyalty_cards.field}}
   result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => {
     return data.loyaltyCard?.[field] || '';
   });
+  
   return result;
 }
 
 /**
- * Obtiene href según tipo de link
+ * Obtiene el href correcto según el tipo de link
  */
 function getLinkHref(type, url) {
   switch(type) {
@@ -100,7 +112,13 @@ router.get('/wallet', async (req, res) => {
         email,
         phone,
         business_id,
-        created_at
+        created_at,
+        loyalty_cards (
+          current_points,
+          current_stamps,
+          card_number,
+          status
+        )
       `)
       .eq('id', customerId)
       .single();
@@ -110,27 +128,14 @@ router.get('/wallet', async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    console.log('✅ Customer:', customerData.full_name);
+    const loyaltyCard = Array.isArray(customerData.loyalty_cards) 
+      ? customerData.loyalty_cards[0] 
+      : customerData.loyalty_cards;
+
+    console.log('✅ Customer:', customerData.full_name, '| Points:', loyaltyCard?.current_points || 0);
 
     // ============================================
-    // 2. OBTENER LOYALTY CARD CON PUNTOS
-    // ============================================
-    const { data: loyaltyCard, error: cardError } = await supabase
-      .from('loyalty_cards')
-      .select('*')
-      .eq('customer_id', customerId)
-      .eq('passkit_config_id', configId)
-      .single();
-
-    if (cardError || !loyaltyCard) {
-      console.error('❌ Loyalty card not found:', cardError);
-      return res.status(404).json({ error: 'Loyalty card not found' });
-    }
-
-    console.log('✅ Loyalty card found | Points:', loyaltyCard.current_points);
-
-    // ============================================
-    // 3. OBTENER DATOS DEL NEGOCIO
+    // 2. OBTENER DATOS DEL NEGOCIO
     // ============================================
     const { data: businessData, error: businessError } = await supabase
       .from('businesses')
@@ -146,28 +151,32 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Business:', businessData.name);
 
     // ============================================
-    // 4. OBTENER CONFIGURACIÓN POR configId (FIX)
+    // 3. OBTENER CONFIGURACIÓN COMPLETA (DIRECTO DE PASSKIT_CONFIGS)
     // ============================================
-    const { data: passkitConfig, error: configError } = await supabase
+    console.log('🔍 Querying passkit config directly with ID:', configId);
+
+    const { data: passkitConfig, error: passkitError } = await supabase
       .from('passkit_configs')
       .select('*')
       .eq('id', configId)
       .single();
 
-    if (configError || !passkitConfig) {
-      console.error('❌ Config not found:', configError);
+    if (passkitError || !passkitConfig) {
+      console.error('❌ PassKit config not found:', passkitError);
       return res.status(404).json({ error: 'Config not found' });
     }
 
-    console.log('✅ Config:', passkitConfig.config_name);
+    // Validar que el business_id coincida
+    if (passkitConfig.business_id !== businessId) {
+      console.error('❌ Business ID mismatch');
+      return res.status(403).json({ error: 'Business ID mismatch' });
+    }
 
-    const appleConfig = passkitConfig.apple_config || {};
-    const memberFields = passkitConfig.member_fields || [];
-    const barcodeConfig = passkitConfig.barcode_config || {};
-    const linksFields = passkitConfig.links_fields || [];
-    const customFields = passkitConfig.custom_fields || [];
+    console.log('✅ PassKit Config:', passkitConfig.config_name);
 
-    // ⭐ CONSULTAR UBICACIONES VINCULADAS ⭐
+    // ============================================
+    // 3.5 OBTENER UBICACIONES VINCULADAS
+    // ============================================
     console.log('📍 Querying linked locations...');
     const { data: linkedLocations, error: locationsError } = await supabase
       .from('passkit_config_locations')
@@ -185,57 +194,85 @@ router.get('/wallet', async (req, res) => {
 
     if (locationsError) {
       console.error('⚠️ Error querying locations:', locationsError);
+    } else {
+      console.log(`✅ Found ${linkedLocations?.length || 0} linked locations`);
     }
 
-    // ✅ USAR TEMPLATE BASE COMPARTIDO
-    // Cada generación descarga sus propias imágenes antes de generar
-    // No hay problema de sobrescritura porque la generación es SINCRÓNICA
+    const appleConfig = passkitConfig.apple_config || {};
+    const memberFields = passkitConfig.member_fields || [];
+    const barcodeConfig = passkitConfig.barcode_config || {};
+    const linksFields = passkitConfig.links_fields || [];
+    const customFields = passkitConfig.custom_fields || [];
+
+    // ============================================
+    // 4. DESCARGAR IMÁGENES DESDE SUPABASE
+    // ============================================
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
+    
+    console.log('📥 Downloading images from Supabase...');
 
-    // ============================================
-    // 5. DESCARGAR IMÁGENES
-    // ============================================
-    console.log('📥 Downloading images...');
-    if (appleConfig.logo_url) {
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
-      await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+    try {
+      // Descargar logo (requerido por Apple Wallet)
+      if (appleConfig.logo_url) {
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo.png'));
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@2x.png'));
+        await downloadImage(appleConfig.logo_url, path.join(templatePath, 'logo@3x.png'));
+        console.log('✅ Logo downloaded');
+      }
+
+      // Descargar icon (REQUERIDO por Apple Wallet)
+      if (appleConfig.icon_url) {
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
+        await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
+        console.log('✅ Icon downloaded');
+      }
+
+      // Descargar strip (opcional pero recomendado)
+      if (appleConfig.strip_image_url) {
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+        console.log('✅ Strip downloaded');
+      }
+
+      console.log('✅ All images downloaded successfully');
+    } catch (imageError) {
+      console.error('❌ Image download failed:', imageError.message);
+      return res.status(500).json({ 
+        error: 'Failed to download images from Supabase',
+        details: imageError.message 
+      });
     }
 
-    if (appleConfig.icon_url) {
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon.png'));
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@2x.png'));
-      await downloadImage(appleConfig.icon_url, path.join(templatePath, 'icon@3x.png'));
-    }
-
-    if (appleConfig.strip_image_url) {
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-      await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
-    }
-    console.log('✅ Images downloaded');
+    // ============================================
+    // 4.5 INICIALIZAR CERTIFICADOS (CRÍTICO)
+    // ============================================
+    await certificateManager.initialize();
+    console.log('✅ Certificates initialized');
 
     // ============================================
-    // 6. CREAR PASS
+    // 5. CREAR EL PASE - CRÍTICO: webServiceURL Y authenticationToken VAN AQUÍ
     // ============================================
-    console.log('🎨 Creating pass...');
+    const serialNumber = loyaltyCard?.card_number || `${businessId.slice(0, 8)}-${customerId.slice(0, 8)}`.toUpperCase();
+
     const pass = await PKPass.from(
       {
         model: templatePath,
         certificates: certificateManager.getAllCertificates()
       },
       {
-        serialNumber: loyaltyCard.card_number,
+        serialNumber: serialNumber,
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
         teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
         organizationName: appleConfig.organization_name || passkitConfig.config_name,
         description: appleConfig.description || 'Tarjeta de Fidelidad',
-        logoText: appleConfig.logo_text || '',
+        logoText: appleConfig.logo_text || undefined,
         backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-        authenticationToken: loyaltyCard.card_number
+        authenticationToken: serialNumber
       }
     );
 
@@ -262,6 +299,19 @@ router.get('/wallet', async (req, res) => {
       console.log('ℹ️ No locations linked to passkit_config');
     }
 
+    console.log('🎨 Colors applied:', {
+      background: hexToRgb(appleConfig.background_color || '#121212'),
+      foreground: hexToRgb(appleConfig.foreground_color || '#ef852e'),
+      label: hexToRgb(appleConfig.label_color || '#FFFFFF')
+    });
+
+    console.log('🌐 WebService configured:', process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com');
+    console.log('🔑 Auth token:', serialNumber);
+
+    // ============================================
+    // 6. TODOS LOS CAMPOS VAN EN secondaryFields (IGNORAR position)
+    // ============================================
+    
     const templateData = {
       customer: {
         full_name: customerData.full_name,
@@ -269,25 +319,42 @@ router.get('/wallet', async (req, res) => {
         phone: customerData.phone
       },
       loyaltyCard: {
-        current_points: loyaltyCard.current_points || 0,
-        current_stamps: loyaltyCard.current_stamps || 0,
-        card_number: loyaltyCard.card_number
+        current_points: loyaltyCard?.current_points || 0,
+        current_stamps: loyaltyCard?.current_stamps || 0,
+        card_number: serialNumber
       }
     };
 
-    // Agregar campos
+    // TODOS los campos van en secondaryFields para aparecer debajo del strip
     memberFields.forEach(field => {
       const value = processTemplate(field.valueTemplate, templateData);
-      pass.secondaryFields.push({
+      
+      const fieldData = {
         key: field.key,
         label: field.label,
         value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
-      });
+      };
+
+      // AGREGAR changeMessage para notificaciones automáticas de Apple
+      if (field.key.includes('points')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
+      } else if (field.key.includes('stamps')) {
+        fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
+      }
+
+      pass.secondaryFields.push(fieldData);
     });
 
-    // Agregar backFields
+    console.log('✅ Fields configured in secondaryFields (below strip) with changeMessage');
+
+    // ============================================
+    // 7. CONFIGURAR REVERSO (backFields) - ORDEN: TEXTOS + LINKS
+    // ============================================
+    
+    // 1️⃣ PRIMERO: Textos desde custom_fields (type === "text")
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
+      
       backsideTexts.forEach(item => {
         if (item.content && item.content.text) {
           pass.backFields.push({
@@ -299,10 +366,13 @@ router.get('/wallet', async (req, res) => {
       });
     }
 
+    // 2️⃣ DESPUÉS: Links desde links_fields
     if (linksFields && Array.isArray(linksFields)) {
       const activeLinks = linksFields.filter(link => link.enabled);
+      
       activeLinks.forEach(link => {
         const href = getLinkHref(link.type, link.url);
+        
         pass.backFields.push({
           key: link.id,
           label: link.name,
@@ -313,32 +383,66 @@ router.get('/wallet', async (req, res) => {
       });
     }
 
-    // Agregar barcode
+    console.log(`✅ Back fields configured: ${pass.backFields.length} fields`);
+
+    // ============================================
+    // 8. BARCODE DESDE barcode_config
+    // ============================================
+    
     const barcodeMessage = processTemplate(barcodeConfig.message_template, templateData);
+    
     pass.setBarcodes({
-      message: barcodeMessage || customerData.id,
+      message: barcodeMessage || customerId,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || ''
     });
 
-    // ✅ NO BORRAR IMÁGENES
-    // Las imágenes se mantienen en disco para acelerar generaciones futuras
-    // Cada generación sobrescribe con sus propias imágenes antes de crear el pass
+    console.log('✅ Barcode configured:', barcodeConfig.alt_text);
 
-    console.log('📦 Generating buffer...');
-    const buffer = pass.getAsBuffer();
-    console.log('✅ Pass generation completed successfully');
+    console.log('🔨 Pass configured with Supabase data (storeCard type)');
+
+    // ============================================
+    // 9. GENERAR Y ENVIAR
+    // ============================================
+    const passBuffer = pass.getAsBuffer();
+    console.log(`📦 Pass size: ${passBuffer.length} bytes`);
+
+    const filename = `${passkitConfig.config_name}-${customerData.full_name}.pkpass`
+      .replace(/[^a-zA-Z0-9-]/g, '_');
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', `attachment; filename="loyalty-${loyaltyCard.card_number}.pkpass"`);
-    res.send(buffer);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', passBuffer.length);
+
+    res.send(passBuffer);
+
+    console.log('✅ Pass sent successfully');
+
+    // ============================================
+    // 10. LIMPIAR IMÁGENES TEMPORALES
+    // ============================================
+    try {
+      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
+      console.log('🧹 Cleaned up temporary images');
+    } catch (cleanupError) {
+      // Ignorar errores de limpieza
+    }
 
   } catch (error) {
-    console.error('❌ Failed to generate pass:', error);
-    console.error('Error details:', error.message);
-    console.error('Stack:', error.stack);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error:', error);
+    res.status(500).json({
+      error: 'Failed to generate pass',
+      details: error.message
+    });
   }
 });
 
