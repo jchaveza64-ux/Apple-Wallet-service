@@ -256,14 +256,12 @@ async function generateUpdatedPass(serialNumber) {
     }
 
     // ✅ USAR TEMPLATE BASE COMPARTIDO
-    // Cada generación descarga sus propias imágenes antes de generar
-    // No hay problema de sobrescritura porque la generación es SINCRÓNICA
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
     await downloadConfigImages(appleConfig, templatePath);
 
     // ⭐ PREPARAR LOCATIONS (RELEVANCIA LOCK SCREEN) ⭐
-    // Apple Wallet usa "locations" + "maxDistance" para sugerir en Lock Screen. :contentReference[oaicite:1]{index=1}
+    // Apple Wallet usa "locations" + "maxDistance" para sugerir en Lock Screen.
     let passLocations = undefined;
 
     if (linkedLocations && linkedLocations.length > 0) {
@@ -273,13 +271,11 @@ async function generateUpdatedPass(serialNumber) {
           const lat = Number(loc.locations.latitude);
           const lng = Number(loc.locations.longitude);
 
-          // Evitar NaN/Infinity
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
           return {
             latitude: lat,
             longitude: lng,
-            // Opcional: texto que puede mostrarse en lock screen cuando sea relevante
             relevantText: loc.locations.name
               ? `Cerca de ${loc.locations.name}`
               : 'Local cercano'
@@ -288,7 +284,7 @@ async function generateUpdatedPass(serialNumber) {
         .filter(Boolean);
 
       if (validLocations.length > 0) {
-        passLocations = validLocations.slice(0, 10); // Apple limita a 10 locations por pass (buena práctica)
+        passLocations = validLocations.slice(0, 10);
         console.log(`📍 Will add ${passLocations.length} locations to pass (lock screen relevance)`);
       } else {
         console.log('ℹ️ No valid locations found (missing/invalid coordinates)');
@@ -319,7 +315,7 @@ async function generateUpdatedPass(serialNumber) {
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
         authenticationToken: serialNumber,
 
-        // ✅ Relevancia para lock screen (CLAVE)
+        // (Opcional) Puedes dejar el spread, pero la parte CANÓNICA va debajo.
         ...(passLocations && { locations: passLocations }),
         ...(passLocations && { maxDistance: safeMaxDistance })
       }
@@ -327,15 +323,17 @@ async function generateUpdatedPass(serialNumber) {
 
     pass.type = 'storeCard';
 
-    // ✅ Safety-net: asegurar que quede en el pass final aunque el lib ignore el spread por alguna razón
-    if (passLocations) {
-      pass.locations = passLocations;
-      pass.maxDistance = safeMaxDistance;
-      console.log(`✅ Applied locations+maxDistance directly on pass object (maxDistance=${safeMaxDistance}m)`);
+    // ==================================================
+    // ✅ RELEVANCIA CANÓNICA (lo más confiable con la lib)
+    // ==================================================
+    if (passLocations && passLocations.length > 0) {
+      pass.setLocations(...passLocations);
+      pass.props.maxDistance = safeMaxDistance;
+      console.log(`✅ Canonical relevance set: ${passLocations.length} locations, maxDistance=${safeMaxDistance}m`);
     }
 
-    // Puedes dejarlo así por ahora; luego lo hacemos opcional por campaña
-    pass.relevantDate = new Date().toISOString();
+    // RelevantDate (forma canónica)
+    pass.setRelevantDate(new Date());
 
     const templateData = {
       customer: {
