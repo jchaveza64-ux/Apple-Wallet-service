@@ -593,7 +593,7 @@ router.post('/notify-update', async (req, res) => {
       return res.status(400).json({ error: 'serialNumber required' });
     }
 
-    console.log('🔔 Sending push notification for:', serialNumber);
+    console.log('🔔 Sending EMPTY push notification for:', serialNumber);
 
     // Buscar todos los dispositivos registrados para este pass
     const { data: registrations, error } = await supabase
@@ -611,51 +611,18 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
-    // Obtener el mensaje más reciente de apple_wallet_messages
-    const { data: messages } = await supabase
-      .from('apple_wallet_messages')
-      .select('message_text, message_type')
-      .eq('card_number', serialNumber)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    let notificationTitle = "¡Tarjeta actualizada!";
-    let notificationBody = "Tu tarjeta de fidelidad ha sido actualizada";
-
-    if (messages && messages.length > 0) {
-      const latestMessage = messages[0];
-      
-      // Personalizar título según tipo de mensaje
-      if (latestMessage.message_type === 'points') {
-        notificationTitle = "✨ ¡Puntos Actualizados!";
-      } else if (latestMessage.message_type === 'reward') {
-        notificationTitle = "🎉 ¡Nueva Recompensa!";
-      } else if (latestMessage.message_type === 'redemption') {
-        notificationTitle = "🎁 ¡Recompensa Canjeada!";
-      } else if (latestMessage.message_type === 'manual') {
-        notificationTitle = "📢 Notificación";
-      }
-      
-      notificationBody = latestMessage.message_text;
-    }
-
-    // Enviar push notification con mensaje personalizado
+    // ⭐ ENVIAR PUSH VACÍO - Apple Wallet maneja la notificación automáticamente
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
       
-      notification.alert = {
-        title: notificationTitle,
-        body: notificationBody
-      };
-      notification.sound = "default";
-      notification.badge = 1;
-      notification.contentAvailable = true;
+      // 🎯 PAYLOAD VACÍO - SIN alert, SIN sound, SIN contentAvailable
+      // Apple Wallet detecta automáticamente el cambio y muestra la notificación
       notification.payload = {};
 
       try {
         const result = await apnsProvider.send(notification, registration.push_token);
-        console.log('📤 Push sent:', result);
+        console.log('📤 Empty push sent:', result);
         return result;
       } catch (err) {
         console.error('❌ Push failed:', err);
@@ -665,7 +632,7 @@ router.post('/notify-update', async (req, res) => {
 
     await Promise.all(promises);
 
-    console.log(`✅ Sent ${promises.length} push notifications with message: ${notificationBody}`);
+    console.log(`✅ Sent ${promises.length} EMPTY push notifications`);
     res.json({ message: `Notified ${promises.length} devices` });
 
   } catch (error) {
