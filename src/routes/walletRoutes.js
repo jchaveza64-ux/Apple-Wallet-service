@@ -132,7 +132,7 @@ router.get('/wallet', async (req, res) => {
       ? customerData.loyalty_cards[0] 
       : customerData.loyalty_cards;
 
-    console.log('✅ Customer:', customerData.full_name, '| Points:', loyaltyCard?.current_points || 0);
+    console.log('✅ Customer:', customerData.full_name);
 
     // ============================================
     // 2. OBTENER DATOS DEL NEGOCIO
@@ -173,6 +173,16 @@ router.get('/wallet', async (req, res) => {
     }
 
     console.log('✅ PassKit Config:', passkitConfig.config_name);
+
+    // ⭐ NUEVO: Obtener tipo de programa
+    const programType = passkitConfig.program_type || 'points_fixed';
+    const stampsRequired = passkitConfig.stamps_required || 10;
+    const stampRewardText = passkitConfig.stamp_reward_text || 'Premio gratis';
+    
+    console.log('🎯 Program Type:', programType);
+    if (programType === 'stamps') {
+      console.log('🎫 Stamps Config:', `${stampsRequired} sellos = ${stampRewardText}`);
+    }
 
     // ============================================
     // 3.5 OBTENER UBICACIONES VINCULADAS
@@ -229,16 +239,15 @@ router.get('/wallet', async (req, res) => {
       }
 
       // Descargar strip (opcional pero recomendado)
-      if (appleConfig.strip_image_url) {
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
-        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
+      if (appleConfig.strip_url) {
+        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip.png'));
+        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip@2x.png'));
+        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip@3x.png'));
         console.log('✅ Strip downloaded');
       }
 
-      console.log('✅ All images downloaded successfully');
     } catch (imageError) {
-      console.error('❌ Image download failed:', imageError.message);
+      console.error('❌ Image download error:', imageError);
       return res.status(500).json({ 
         error: 'Failed to download images from Supabase',
         details: imageError.message 
@@ -272,7 +281,8 @@ router.get('/wallet', async (req, res) => {
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
-        authenticationToken: serialNumber
+        authenticationToken: serialNumber,
+        sharingProhibited: appleConfig.sharingProhibited === true
       }
     );
 
@@ -309,7 +319,7 @@ router.get('/wallet', async (req, res) => {
     console.log('🔑 Auth token:', serialNumber);
 
     // ============================================
-    // 6. TODOS LOS CAMPOS VAN EN secondaryFields (IGNORAR position)
+    // 6. CONFIGURAR CAMPOS SEGÚN TIPO DE PROGRAMA
     // ============================================
     
     const templateData = {
@@ -325,25 +335,51 @@ router.get('/wallet', async (req, res) => {
       }
     };
 
-    // TODOS los campos van en secondaryFields para aparecer debajo del strip
-    memberFields.forEach(field => {
-      const value = processTemplate(field.valueTemplate, templateData);
+    // ⭐ LÓGICA SEGÚN TIPO DE PROGRAMA ⭐
+    if (programType === 'stamps') {
+      // SISTEMA DE SELLOS
+      const currentStamps = loyaltyCard?.current_stamps || 0;
       
-      const fieldData = {
-        key: field.key,
-        label: field.label,
-        value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
-      };
+      pass.secondaryFields.push({
+        key: 'stamps',
+        label: 'Sellos',
+        value: `${currentStamps} de ${stampsRequired}`,
+        changeMessage: `Ahora tienes %@ sellos`
+      });
 
-      // AGREGAR changeMessage para notificaciones automáticas de Apple
-      if (field.key.includes('points')) {
-        fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
-      } else if (field.key.includes('stamps')) {
-        fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
-      }
+      pass.secondaryFields.push({
+        key: 'reward',
+        label: 'Premio',
+        value: stampRewardText
+      });
 
-      pass.secondaryFields.push(fieldData);
-    });
+      console.log(`✅ Stamps configured: ${currentStamps}/${stampsRequired}`);
+      
+    } else {
+      // SISTEMA DE PUNTOS (points_fixed O points_amount)
+      // Visualmente son iguales, la diferencia está en cómo se acumulan (frontend)
+      
+      memberFields.forEach(field => {
+        const value = processTemplate(field.valueTemplate, templateData);
+        
+        const fieldData = {
+          key: field.key,
+          label: field.label,
+          value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
+        };
+
+        // AGREGAR changeMessage para notificaciones automáticas de Apple
+        if (field.key.includes('points')) {
+          fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
+        } else if (field.key.includes('stamps')) {
+          fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
+        }
+
+        pass.secondaryFields.push(fieldData);
+      });
+
+      console.log(`✅ Points configured: ${loyaltyCard?.current_points || 0}`);
+    }
 
     console.log('✅ Fields configured in secondaryFields (below strip) with changeMessage');
 
