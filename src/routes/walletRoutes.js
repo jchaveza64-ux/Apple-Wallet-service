@@ -254,10 +254,10 @@ router.get('/wallet', async (req, res) => {
       }
 
       // Descargar strip (opcional pero recomendado)
-      if (appleConfig.strip_url) {
-        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip.png'));
-        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip@2x.png'));
-        await downloadImage(appleConfig.strip_url, path.join(templatePath, 'strip@3x.png'));
+      if (appleConfig.strip_image_url) {
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@2x.png'));
+        await downloadImage(appleConfig.strip_image_url, path.join(templatePath, 'strip@3x.png'));
         console.log('✅ Strip downloaded');
       }
 
