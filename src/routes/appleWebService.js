@@ -266,16 +266,49 @@ async function generateUpdatedPass(serialNumber) {
 
     if (locationsError) {
       console.error('⚠️ Error querying locations:', locationsError);
-    } else {
-      console.log(`✅ Found ${linkedLocations?.length || 0} linked locations`);
     }
 
+    // ✅ USAR TEMPLATE BASE COMPARTIDO
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
 
-    console.log('📥 Downloading images...');
     await downloadConfigImages(appleConfig, templatePath);
 
-    console.log('📦 Creating pass...');
+    // ⭐ PREPARAR LOCATIONS (RELEVANCIA LOCK SCREEN) ⭐
+    let passLocations = undefined;
+
+    if (linkedLocations && linkedLocations.length > 0) {
+      const validLocations = linkedLocations
+        .filter(loc => loc.locations && loc.locations.latitude != null && loc.locations.longitude != null)
+        .map(loc => {
+          const lat = Number(loc.locations.latitude);
+          const lng = Number(loc.locations.longitude);
+
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+          return {
+            latitude: lat,
+            longitude: lng,
+            relevantText: loc.locations.name
+              ? `Cerca de ${loc.locations.name}`
+              : 'Local cercano'
+          };
+        })
+        .filter(Boolean);
+
+      if (validLocations.length > 0) {
+        passLocations = validLocations.slice(0, 10);
+        console.log(`📍 Will add ${passLocations.length} locations to pass (lock screen relevance)`);
+      } else {
+        console.log('ℹ️ No valid locations found (missing/invalid coordinates)');
+      }
+    } else {
+      console.log('ℹ️ No locations linked to passkit_config');
+    }
+
+    const maxDistance = Number(appleConfig.max_distance || 200);
+    const safeMaxDistance = Number.isFinite(maxDistance) && maxDistance > 0 ? maxDistance : 200;
+
+    console.log('🎨 Creating pass...');
     const pass = await PKPass.from(
       {
         model: templatePath,
@@ -287,33 +320,31 @@ async function generateUpdatedPass(serialNumber) {
         teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
         organizationName: appleConfig.organization_name || passkitConfig.config_name,
         description: appleConfig.description || 'Tarjeta de Fidelidad',
-        logoText: appleConfig.logo_text || undefined,
+        logoText: appleConfig.logo_text || '',
         backgroundColor: hexToRgb(appleConfig.background_color || '#121212'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#ef852e'),
         labelColor: hexToRgb(appleConfig.label_color || '#FFFFFF'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
         authenticationToken: serialNumber,
         sharingProhibited: appleConfig.sharingProhibited === true,
-        ...(linkedLocations && linkedLocations.length > 0 && {
-          locations: linkedLocations
-            .filter(loc => loc.locations && loc.locations.latitude && loc.locations.longitude)
-            .map(loc => ({
-              latitude: Number(loc.locations.latitude),
-              longitude: Number(loc.locations.longitude),
-              relevantText: `Visita ${loc.locations.name || 'nuestro local'}`
-            }))
-        })
+
+        ...(passLocations && { locations: passLocations }),
+        ...(passLocations && { maxDistance: safeMaxDistance })
       }
     );
 
     pass.type = 'storeCard';
-    pass.relevantDate = new Date().toISOString();
 
-    console.log('🎨 Applying colors:', {
-      background: hexToRgb(appleConfig.background_color || '#121212'),
-      foreground: hexToRgb(appleConfig.foreground_color || '#ef852e'),
-      label: hexToRgb(appleConfig.label_color || '#FFFFFF')
-    });
+    // ==================================================
+    // ✅ RELEVANCIA CANÓNICA
+    // ==================================================
+    if (passLocations && passLocations.length > 0) {
+      pass.setLocations(...passLocations);
+      pass.props.maxDistance = safeMaxDistance;
+      console.log(`✅ Canonical relevance set: ${passLocations.length} locations, maxDistance=${safeMaxDistance}m`);
+    }
+
+    pass.setRelevantDate(new Date());
 
     const templateData = {
       customer: {
@@ -322,14 +353,18 @@ async function generateUpdatedPass(serialNumber) {
         phone: customer.phone
       },
       loyaltyCard: {
-        current_points: loyaltyCard.current_points,
-        current_stamps: loyaltyCard.current_stamps,
+        current_points: loyaltyCard.current_points || 0,
+        current_stamps: loyaltyCard.current_stamps || 0,
         card_number: serialNumber
       }
     };
 
-    // ⭐ LÓGICA SEGÚN TIPO DE PROGRAMA ⭐
+    // ============================================
+    // ⭐ CONFIGURAR CAMPOS SEGÚN TIPO DE PROGRAMA ⭐
+    // ============================================
+    
     if (programType === 'stamps') {
+      // SISTEMA DE SELLOS
       const currentStamps = loyaltyCard.current_stamps || 0;
       
       pass.secondaryFields.push({
@@ -348,30 +383,60 @@ async function generateUpdatedPass(serialNumber) {
       console.log(`✅ Stamps configured: ${currentStamps}/${stampsRequired}`);
       
     } else {
+      // SISTEMA DE PUNTOS (points_fixed O points_amount)
+      console.log('📝 Adding fields with points:', loyaltyCard.current_points);
+
       memberFields.forEach(field => {
         const value = processTemplate(field.valueTemplate, templateData);
-        
-        const fieldData = {
+        pass.secondaryFields.push({
           key: field.key,
           label: field.label,
-          value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value
-        };
-
-        if (field.key.includes('points')) {
-          fieldData.changeMessage = '¡Ahora tienes %@ puntos!';
-        } else if (field.key.includes('stamps')) {
-          fieldData.changeMessage = '¡Ahora tienes %@ sellos!';
-        }
-
-        pass.secondaryFields.push(fieldData);
+          value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value,
+          changeMessage: "✅ Tus puntos se actualizaron"
+        });
       });
 
       console.log(`✅ Points configured: ${loyaltyCard.current_points || 0}`);
     }
 
+    // ⭐ MENSAJES APPLE WALLET - PRIMERO (APARECEN ARRIBA) ⭐
+    console.log('💬 Querying apple_wallet_messages...');
+    const { data: messages, error: messagesError } = await supabase
+      .from('apple_wallet_messages')
+      .select('message_text, created_at')
+      .eq('card_number', serialNumber)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    if (messagesError) {
+      console.error('⚠️ Error querying messages:', messagesError);
+    } else if (messages && messages.length > 0) {
+      console.log(`📬 Adding ${messages.length} messages to pass (AT TOP)`);
+      
+      messages.forEach((msg, index) => {
+        const dateLabel = new Date(msg.created_at).toLocaleDateString('es-ES', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'America/Lima'
+        });
+        
+        pass.backFields.push({
+          key: `apple_message_${index}`,
+          label: dateLabel,
+          value: msg.message_text
+        });
+      });
+      
+      console.log('✅ Messages added to top of backFields');
+    } else {
+      console.log('ℹ️ No messages found for this pass');
+    }
+    // ⭐ FIN MENSAJES ⭐
+
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
-      
       backsideTexts.forEach(item => {
         if (item.content && item.content.text) {
           pass.backFields.push({
@@ -385,10 +450,8 @@ async function generateUpdatedPass(serialNumber) {
 
     if (linksFields && Array.isArray(linksFields)) {
       const activeLinks = linksFields.filter(link => link.enabled);
-      
       activeLinks.forEach(link => {
         const href = getLinkHref(link.type, link.url);
-        
         pass.backFields.push({
           key: link.id,
           label: link.name,
