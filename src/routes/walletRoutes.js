@@ -215,10 +215,25 @@ router.get('/wallet', async (req, res) => {
     const customFields = passkitConfig.custom_fields || [];
 
     // ============================================
-    // 4. DESCARGAR IMÁGENES DESDE SUPABASE
+    // 4. LIMPIAR IMÁGENES VIEJAS PRIMERO
     // ============================================
     const templatePath = path.join(__dirname, '../templates/loyalty.pass');
     
+    // 🔧 FIX: Limpiar ANTES para evitar que Apple Wallet vea caché viejo
+    try {
+      await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'logo@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'icon@3x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@2x.png')).catch(() => {});
+      await fs.unlink(path.join(templatePath, 'strip@3x.png')).catch(() => {});
+    } catch (cleanupError) {
+      // Ignorar errores si no existen
+    }
+
     console.log('📥 Downloading images from Supabase...');
 
     try {
@@ -483,7 +498,7 @@ router.get('/wallet', async (req, res) => {
     console.log('✅ Pass sent successfully');
 
     // ============================================
-    // 10. LIMPIAR IMÁGENES TEMPORALES
+    // 10. LIMPIAR IMÁGENES TEMPORALES AL FINAL
     // ============================================
     try {
       await fs.unlink(path.join(templatePath, 'logo.png')).catch(() => {});
