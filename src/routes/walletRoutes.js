@@ -349,7 +349,9 @@ router.get('/wallet', async (req, res) => {
       console.log(`✅ Canonical relevance set: ${passLocations.length} locations, maxDistance=${safeMaxDistance}m`);
     }
 
-    pass.setRelevantDate(new Date());
+    // 🔧 REMOVED: setRelevantDate(new Date()) 
+    // Causa que Apple marque las tarjetas como vencidas después de la fecha
+    // Las tarjetas de fidelidad NO necesitan relevantDate
 
     console.log('🎨 Colors applied:', {
       background: hexToRgb(appleConfig.background_color || '#121212'),
