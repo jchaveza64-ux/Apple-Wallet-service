@@ -344,7 +344,9 @@ async function generateUpdatedPass(serialNumber) {
       console.log(`✅ Canonical relevance set: ${passLocations.length} locations, maxDistance=${safeMaxDistance}m`);
     }
 
-    pass.setRelevantDate(new Date());
+    // 🔧 REMOVED: setRelevantDate(new Date())
+    // Causa que Apple marque las tarjetas como vencidas después de la fecha
+    // Las tarjetas de fidelidad NO necesitan relevantDate
 
     const templateData = {
       customer: {
