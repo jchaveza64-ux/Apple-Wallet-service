@@ -594,10 +594,59 @@ router.get('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifi
 // ============================================
 router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
   try {
-    const { serialNumber } = req.params;
+    const { serialNumber, passTypeIdentifier } = req.params;
     const authToken = req.headers['authorization']?.replace('ApplePass ', '');
 
     console.log('📦 Getting updated pass:', { serialNumber });
+
+    // ============================================
+    // 🔧 AUTO-REGISTRO: Si no está registrado, registrar automáticamente
+    // ============================================
+    const { data: existingRegistration } = await supabase
+      .from('device_registrations')
+      .select('*')
+      .eq('serial_number', serialNumber)
+      .single();
+
+    if (!existingRegistration) {
+      console.log('⚠️ Device not registered, attempting auto-registration...');
+      
+      const { data: loyaltyCard } = await supabase
+        .from('loyalty_cards')
+        .select('*, customers(*)')
+        .eq('card_number', serialNumber)
+        .single();
+
+      if (loyaltyCard) {
+        const customer = Array.isArray(loyaltyCard.customers)
+          ? loyaltyCard.customers[0]
+          : loyaltyCard.customers;
+
+        await supabase.from('device_registrations').insert({
+          device_library_identifier: `auto-${Date.now()}-${serialNumber.slice(-8)}`,
+          push_token: 'auto-registered',
+          pass_type_identifier: passTypeIdentifier,
+          serial_number: serialNumber,
+          customer_id: customer.id,
+          business_id: customer.business_id,
+          authentication_token: authToken || serialNumber,
+          updated_at: new Date().toISOString()
+        });
+
+        console.log('✅ Device auto-registered successfully');
+
+        // Actualizar wallet_type_override
+        await supabase
+          .from('loyalty_cards')
+          .update({ 
+            wallet_type_override: 'apple',
+            wallet_status: 'active'
+          })
+          .eq('card_number', serialNumber);
+
+        console.log('✅ Wallet type updated to Apple');
+      }
+    }
 
     console.log('ℹ️ Auth token validation skipped');
 
