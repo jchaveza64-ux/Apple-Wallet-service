@@ -2,16 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import walletRoutes from './src/routes/walletRoutes.js';
 import appleWebServiceRoutes from './src/routes/appleWebService.js';
+import giftCardRoutes from './src/routes/giftCardRoutes.js';
 import certificateManager from './src/config/certificates.js';
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 // Routes
 app.get('/', (req, res) => {
   res.json({
@@ -19,6 +17,7 @@ app.get('/', (req, res) => {
     message: 'Apple Wallet Service is running',
     endpoints: {
       generatePass: '/wallet',
+      generateGiftCard: '/gift-card/wallet',
       registerDevice: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber',
       getUpdatablePasses: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier',
       getUpdatedPass: '/v1/passes/:passTypeIdentifier/:serialNumber',
@@ -27,10 +26,9 @@ app.get('/', (req, res) => {
     }
   });
 });
-
 app.use(walletRoutes);
 app.use(appleWebServiceRoutes);
-
+app.use(giftCardRoutes);
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -39,7 +37,6 @@ app.use((err, req, res, next) => {
     message: err.message
   });
 });
-
 // Start server with async initialization
 async function startServer() {
   try {
@@ -48,7 +45,6 @@ async function startServer() {
     await certificateManager.initialize();
     certificateManager.validateCertificates();
     console.log('✅ Certificates loaded successfully');
-
     // Iniciar servidor
     app.listen(PORT, () => {
       console.log('=================================================');
@@ -57,6 +53,7 @@ async function startServer() {
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
       console.log('✅ Ready to generate passes');
+      console.log('🎁 Gift Card endpoint: /gift-card/wallet');
       console.log('=================================================');
     });
   } catch (error) {
@@ -64,6 +61,5 @@ async function startServer() {
     process.exit(1);
   }
 }
-
 // Iniciar
 startServer();
