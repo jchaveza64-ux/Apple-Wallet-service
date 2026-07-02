@@ -341,7 +341,7 @@ router.get('/gift-card/wallet', async (req, res) => {
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
         teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
         organizationName: appleConfig.organization_name || passkitConfig.config_name || businessData.name,
-        description: appleConfig.description || 'Tarjeta de Regalo',
+        description: 'Tarjeta de Regalo',
         logoText: appleConfig.logo_text || 'Gift Card',
         backgroundColor: hexToRgb(appleConfig.background_color || '#6B21A8'),
         foregroundColor: hexToRgb(appleConfig.foreground_color || '#FFFFFF'),
