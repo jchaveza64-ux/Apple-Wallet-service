@@ -69,6 +69,47 @@ function getLinkHref(type, url) {
   }
 }
 
+/**
+ * Procesa templates de valores dinámicos para Gift Cards
+ * Soporta: {{gift_card.field}}, {{business.field}}, {{customers.field}}
+ */
+function processTemplate(template, data) {
+  if (!template) return '';
+  
+  let result = template;
+  
+  // Reemplazar {{gift_card.field}}
+  result = result.replace(/\{\{gift_card\.(\w+)\}\}/g, (match, field) => {
+    return data.giftCard?.[field] ?? '';
+  });
+  
+  // Reemplazar {{business.field}}
+  result = result.replace(/\{\{business\.(\w+)\}\}/g, (match, field) => {
+    return data.business?.[field] ?? '';
+  });
+
+  // Compatibilidad: {{customers.field}} → mapea a datos del beneficiario
+  result = result.replace(/\{\{customers\.(\w+)\}\}/g, (match, field) => {
+    const mapping = {
+      full_name: data.giftCard?.claimed_by_name,
+      email: data.giftCard?.claimed_by_email,
+      name: data.giftCard?.claimed_by_name
+    };
+    return mapping[field] ?? '';
+  });
+
+  // Compatibilidad: {{loyalty_cards.field}} → mapea a datos de gift card
+  result = result.replace(/\{\{loyalty_cards\.(\w+)\}\}/g, (match, field) => {
+    const mapping = {
+      current_points: data.giftCard?.points_remaining,
+      card_number: data.serialNumber
+    };
+    return mapping[field] ?? '';
+  });
+  
+  return result;
+}
+
 // ============================================
 // RUTA: GET /gift-card/wallet?token=xxx
 // Genera un .pkpass de Apple Wallet para una Gift Card
@@ -146,7 +187,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     if (passkitError || !passkitConfig) {
       console.error('❌ Gift Card wallet config not found:', passkitError);
       return res.status(404).json({
-        error: 'No wallet configuration found for Gift Cards in this business. Please create one in Configuración de Wallet Pass → Gift Card.'
+        error: 'No wallet configuration found for Gift Cards in this business.'
       });
     }
 
@@ -177,6 +218,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     }
 
     const appleConfig = passkitConfig.apple_config || {};
+    const memberFields = passkitConfig.member_fields || [];
     const linksFields = passkitConfig.links_fields || [];
     const customFields = passkitConfig.custom_fields || [];
     const barcodeConfig = passkitConfig.barcode_config || {};
@@ -189,7 +231,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     // Asegurar que la carpeta existe
     await fs.mkdir(templatePath, { recursive: true });
 
-    // Escribir pass.json mínimo (los campos se configuran vía PKPass.from)
+    // Escribir pass.json mínimo
     const passJsonContent = {
       formatVersion: 1,
       passTypeIdentifier: '',
@@ -326,65 +368,77 @@ router.get('/gift-card/wallet', async (req, res) => {
     });
 
     // ============================================
-    // 6. CONFIGURAR CAMPOS — GIFT CARD
+    // 6. CONFIGURAR CAMPOS — DESDE LA PLATAFORMA
     // ============================================
 
-    // Header: etiqueta Gift Card
+    // Datos disponibles para templates
+    const templateData = {
+      giftCard: {
+        points_remaining: giftCard.points_remaining,
+        points_loaded: giftCard.points_loaded,
+        claimed_by_name: giftCard.claimed_by_name || 'Portador',
+        claimed_by_email: giftCard.claimed_by_email || '',
+        token: giftCard.token
+      },
+      business: {
+        name: businessData.name,
+        description: businessData.description || ''
+      },
+      serialNumber: serialNumber
+    };
+
+    // Header: GIFT CARD 🎁 (siempre visible arriba a la derecha)
     pass.headerFields.push({
       key: 'gift_label',
-      label: 'GIFT CARD',
-      value: '🎁'
+      label: '',
+      value: 'GIFT CARD 🎁'
     });
 
-    // Secondary: puntos disponibles + beneficiario
-    pass.secondaryFields.push({
-      key: 'points',
-      label: 'Puntos disponibles',
-      value: giftCard.points_remaining,
-      changeMessage: 'Tienes %@ puntos disponibles en tu Gift Card'
-    });
+    // Si hay member_fields configurados en la plataforma, usarlos
+    // (igual que loyalty cards — el usuario define labels y valores)
+    if (memberFields.length > 0) {
+      memberFields.forEach(field => {
+        const value = processTemplate(field.valueTemplate, templateData);
+        
+        const fieldData = {
+          key: field.key,
+          label: field.label,
+          value: field.key.includes('points') ? Number(value) || value : value
+        };
 
-    pass.secondaryFields.push({
-      key: 'beneficiary',
-      label: 'Beneficiario',
-      value: giftCard.claimed_by_name || 'Portador'
-    });
+        // changeMessage para notificaciones automáticas de Apple
+        if (field.key.includes('points')) {
+          fieldData.changeMessage = '¡Ahora tienes %@ puntos en tu Gift Card!';
+        }
 
-    // Auxiliary: negocio
-    pass.auxiliaryFields.push({
-      key: 'business',
-      label: 'Negocio',
-      value: businessData.name
-    });
-
-    console.log('✅ Gift Card fields configured');
-
-    // ============================================
-    // 7. REVERSO (backFields)
-    // ============================================
-
-    // Info de la gift card
-    pass.backFields.push({
-      key: 'gc_info',
-      label: 'Información de tu Gift Card',
-      value: `Esta es una Tarjeta de Regalo de ${businessData.name} con ${giftCard.points_loaded} puntos cargados. Preséntala en cualquier local para canjear tus puntos.`
-    });
-
-    pass.backFields.push({
-      key: 'gc_points',
-      label: 'Puntos originales',
-      value: `${giftCard.points_loaded} puntos`
-    });
-
-    if (giftCard.claimed_by_email) {
-      pass.backFields.push({
-        key: 'gc_email',
-        label: 'Email registrado',
-        value: giftCard.claimed_by_email
+        pass.secondaryFields.push(fieldData);
       });
+
+      console.log(`✅ Fields from platform config: ${memberFields.length} fields`);
+
+    } else {
+      // DEFAULTS si no se han configurado member_fields en la plataforma
+      pass.secondaryFields.push({
+        key: 'points',
+        label: 'Puntos disponibles',
+        value: giftCard.points_remaining,
+        changeMessage: '¡Ahora tienes %@ puntos en tu Gift Card!'
+      });
+
+      pass.secondaryFields.push({
+        key: 'beneficiary',
+        label: 'Beneficiario',
+        value: giftCard.claimed_by_name || 'Portador'
+      });
+
+      console.log('✅ Using default gift card fields (no member_fields configured)');
     }
 
-    // Textos personalizados desde config
+    // ============================================
+    // 7. REVERSO (backFields) — DESDE LA PLATAFORMA
+    // ============================================
+
+    // 1️⃣ Textos personalizados desde custom_fields (configurados en la plataforma)
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
       backsideTexts.forEach(item => {
@@ -398,7 +452,7 @@ router.get('/gift-card/wallet', async (req, res) => {
       });
     }
 
-    // Links desde config
+    // 2️⃣ Links desde links_fields (configurados en la plataforma)
     if (linksFields && Array.isArray(linksFields)) {
       const activeLinks = linksFields.filter(link => link.enabled);
       activeLinks.forEach(link => {
@@ -413,16 +467,30 @@ router.get('/gift-card/wallet', async (req, res) => {
       });
     }
 
+    // Si no hay ningún backField configurado, poner un default mínimo
+    if (pass.backFields.length === 0) {
+      pass.backFields.push({
+        key: 'gc_info',
+        label: 'Gift Card',
+        value: `Tarjeta de Regalo de ${businessData.name} con ${giftCard.points_loaded} puntos.`
+      });
+    }
+
     console.log(`✅ Back fields: ${pass.backFields.length} fields`);
 
     // ============================================
     // 8. BARCODE — QR con token de la Gift Card
     // ============================================
+    const barcodeMessage = processTemplate(
+      barcodeConfig.message_template, 
+      templateData
+    );
+
     pass.setBarcodes({
-      message: `GIFTCARD:${giftCard.token}`,
+      message: barcodeMessage || `GIFTCARD:${giftCard.token}`,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
-      altText: `Gift Card · ${giftCard.points_remaining} pts`
+      altText: barcodeConfig.alt_text || `Gift Card · ${giftCard.points_remaining} pts`
     });
 
     console.log('✅ Barcode configured');
@@ -453,8 +521,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       .eq('status', 'registered'); // Safety: solo actualiza si sigue en registered
 
     if (updateError) {
-      // No falla la respuesta — el pass ya se envió.
-      // El status se puede corregir manualmente si es necesario.
       console.error('⚠️ Failed to update gift card status:', updateError);
     } else {
       console.log('✅ Gift card status updated to claimed');
