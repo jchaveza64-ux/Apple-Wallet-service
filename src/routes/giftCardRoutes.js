@@ -71,7 +71,7 @@ function getLinkHref(type, url) {
 
 /**
  * Procesa templates de valores dinámicos para Gift Cards
- * Soporta: {{gift_card.field}}, {{business.field}}, {{customers.field}}
+ * Soporta: {{gift_card.field}}, {{gift_cards.field}}, {{business.field}}, {{customers.field}}
  */
 function processTemplate(template, data) {
   if (!template) return '';
@@ -80,6 +80,11 @@ function processTemplate(template, data) {
   
   // Reemplazar {{gift_card.field}}
   result = result.replace(/\{\{gift_card\.(\w+)\}\}/g, (match, field) => {
+    return data.giftCard?.[field] ?? '';
+  });
+
+  // Reemplazar {{gift_cards.field}} (plural, para consistencia con loyalty_cards)
+  result = result.replace(/\{\{gift_cards\.(\w+)\}\}/g, (match, field) => {
     return data.giftCard?.[field] ?? '';
   });
   
@@ -479,21 +484,23 @@ router.get('/gift-card/wallet', async (req, res) => {
     console.log(`✅ Back fields: ${pass.backFields.length} fields`);
 
     // ============================================
-    // 8. BARCODE — QR con token de la Gift Card
+    // 8. BARCODE — QR con URL desde barcode_config.message_template
+    // Mismo patrón que Loyalty: template en DB → reemplazo → fallback preview.
     // ============================================
+    const defaultBarcodeUrl = `https://pointspark-rewards-74.lovable.app/meseros/gift-card/${giftCard.token}`;
     const barcodeMessage = processTemplate(
       barcodeConfig.message_template, 
       templateData
-    );
+    ) || defaultBarcodeUrl;
 
     pass.setBarcodes({
-      message: barcodeMessage || `https://loyalty.innobizz.biz/meseros/gift-card/${giftCard.token}`,
+      message: barcodeMessage,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || `Gift Card · ${giftCard.points_remaining} pts`
     });
 
-    console.log('✅ Barcode configured');
+    console.log('✅ Barcode configured:', barcodeMessage);
 
     // ============================================
     // 9. GENERAR Y ENVIAR
