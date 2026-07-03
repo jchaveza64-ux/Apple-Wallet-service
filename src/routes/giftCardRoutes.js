@@ -487,7 +487,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     );
 
     pass.setBarcodes({
-      message: barcodeMessage || `GIFTCARD:${giftCard.token}`,
+      message: barcodeMessage || `https://loyalty.innobizz.biz/meseros/gift-card/${giftCard.token}`,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || `Gift Card · ${giftCard.points_remaining} pts`
