@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import walletRoutes from './src/routes/walletRoutes.js';
 import appleWebServiceRoutes from './src/routes/appleWebService.js';
+import businessCardRoutes from './src/routes/businessCardRoutes.js';
 import certificateManager from './src/config/certificates.js';
 
 const app = express();
@@ -19,6 +20,7 @@ app.get('/', (req, res) => {
     message: 'Apple Wallet Service is running',
     endpoints: {
       generatePass: '/wallet',
+      generateBusinessCard: 'POST /business-card/generate',
       registerDevice: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber',
       getUpdatablePasses: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier',
       getUpdatedPass: '/v1/passes/:passTypeIdentifier/:serialNumber',
@@ -30,6 +32,7 @@ app.get('/', (req, res) => {
 
 app.use(walletRoutes);
 app.use(appleWebServiceRoutes);
+app.use(businessCardRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {
