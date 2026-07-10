@@ -3,6 +3,7 @@ import cors from 'cors';
 import walletRoutes from './src/routes/walletRoutes.js';
 import appleWebServiceRoutes from './src/routes/appleWebService.js';
 import giftCardRoutes from './src/routes/giftCardRoutes.js';
+import businessCardRoutes from './src/routes/businessCardRoutes.js';
 import certificateManager from './src/config/certificates.js';
 
 const app = express();
@@ -21,6 +22,7 @@ app.get('/', (req, res) => {
     endpoints: {
       generatePass: '/wallet',
       generateGiftCard: '/gift-card/wallet',
+      generateBusinessCard: '/business-card/generate',
       registerDevice: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber',
       getUpdatablePasses: '/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier',
       getUpdatedPass: '/v1/passes/:passTypeIdentifier/:serialNumber',
@@ -33,6 +35,7 @@ app.get('/', (req, res) => {
 app.use(walletRoutes);
 app.use(appleWebServiceRoutes);
 app.use(giftCardRoutes);
+app.use(businessCardRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {
@@ -61,6 +64,7 @@ async function startServer() {
       console.log(`🔗 URL: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
       console.log('✅ Ready to generate passes');
       console.log('🎁 Gift Card endpoint: /gift-card/wallet');
+      console.log('💼 Business Card endpoint: /business-card/generate');
       console.log('=================================================');
     });
   } catch (error) {
