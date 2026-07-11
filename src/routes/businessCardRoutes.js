@@ -16,6 +16,18 @@ const router = express.Router();
 // HELPERS
 // ============================================
 
+/** Convierte hex (#RRGGBB) a formato RGB que Apple Wallet requiere */
+function hexToRgb(hex, fallback = 'rgb(255, 255, 255)') {
+  if (!hex || typeof hex !== 'string') return fallback;
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return fallback;
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return fallback;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 /** Descarga imagen (soporta redirects) */
 async function downloadImage(url, destPath) {
   return new Promise((resolve, reject) => {
@@ -62,6 +74,9 @@ router.post('/business-card/generate', async (req, res) => {
     'logo.png', 'logo@2x.png', 'logo@3x.png',
     'icon.png', 'icon@2x.png', 'icon@3x.png',
   ];
+  const stripFiles = [
+    'strip.png', 'strip@2x.png', 'strip@3x.png',
+  ];
 
   try {
     const {
@@ -71,7 +86,12 @@ router.post('/business-card/generate', async (req, res) => {
       phone = '',
       email = '',
       cardUrl,
-      logoUrl = ''
+      logoUrl = '',
+      walletBgColor = '#1a1a1a',
+      walletTextColor = '#ffffff',
+      walletLabelColor = '#c8c8c8',
+      walletHeroImage = '',
+      walletQrText = ''
     } = req.body || {};
 
     if (!fullName || !cardUrl) {
@@ -102,7 +122,7 @@ router.post('/business-card/generate', async (req, res) => {
     );
 
     // Limpiar imágenes viejas
-    for (const f of imageFiles) {
+    for (const f of [...imageFiles, ...stripFiles]) {
       await fs.unlink(path.join(templatePath, f)).catch(() => {});
     }
 
@@ -110,26 +130,39 @@ router.post('/business-card/generate', async (req, res) => {
     // 2. IMÁGENES (logo + icon) con fallback
     // ============================================
     let usedFallback = false;
-    const writeAllVariants = async (source) => {
-      // 'source' es una función que escribe el archivo dado un destPath
-      for (const name of imageFiles) {
+    const writeAllVariants = async (files, source) => {
+      for (const name of files) {
         await source(path.join(templatePath, name));
       }
     };
 
     if (logoUrl) {
       try {
-        await writeAllVariants(async (dest) => { await downloadImage(logoUrl, dest); });
+        await writeAllVariants(imageFiles, async (dest) => { await downloadImage(logoUrl, dest); });
         console.log('✅ Logo/Icon downloaded from logoUrl');
       } catch (imgErr) {
         console.warn('⚠️ logoUrl download failed, using transparent fallback:', imgErr.message);
         usedFallback = true;
-        await writeAllVariants(writeFallbackImage);
+        await writeAllVariants(imageFiles, writeFallbackImage);
       }
     } else {
       console.log('ℹ️ No logoUrl provided, using transparent fallback');
       usedFallback = true;
-      await writeAllVariants(writeFallbackImage);
+      await writeAllVariants(imageFiles, writeFallbackImage);
+    }
+
+    // ============================================
+    // 2b. HERO/STRIP IMAGE (si viene walletHeroImage)
+    // ============================================
+    let hasStrip = false;
+    if (walletHeroImage) {
+      try {
+        await writeAllVariants(stripFiles, async (dest) => { await downloadImage(walletHeroImage, dest); });
+        hasStrip = true;
+        console.log('✅ Hero/Strip image downloaded');
+      } catch (stripErr) {
+        console.warn('⚠️ walletHeroImage download failed, skipping strip:', stripErr.message);
+      }
     }
 
     // ============================================
@@ -154,9 +187,9 @@ router.post('/business-card/generate', async (req, res) => {
         organizationName: company || 'Innobizz Cards',
         description: `Tarjeta de presentación de ${fullName}`,
         logoText: company || 'Innobizz Cards',
-        backgroundColor: 'rgb(26, 26, 26)',
-        foregroundColor: 'rgb(255, 255, 255)',
-        labelColor: 'rgb(200, 200, 200)',
+        backgroundColor: hexToRgb(walletBgColor, 'rgb(26, 26, 26)'),
+        foregroundColor: hexToRgb(walletTextColor, 'rgb(255, 255, 255)'),
+        labelColor: hexToRgb(walletLabelColor, 'rgb(200, 200, 200)'),
         webServiceURL: process.env.BASE_URL || 'https://apple-wallet-service-wbtw.onrender.com',
         authenticationToken: serialNumber,
         sharingProhibited: false
@@ -197,18 +230,23 @@ router.post('/business-card/generate', async (req, res) => {
     // ============================================
     // 6. BARCODE (QR con cardUrl)
     // ============================================
-    pass.setBarcodes({
+    const barcodeConfig = {
       message: cardUrl,
       format: 'PKBarcodeFormatQR',
-      messageEncoding: 'iso-8859-1',
-      altText: cardUrl
-    });
+      messageEncoding: 'iso-8859-1'
+    };
+
+    if (walletQrText && walletQrText.trim() !== '') {
+      barcodeConfig.altText = walletQrText.trim();
+    }
+
+    pass.setBarcodes(barcodeConfig);
 
     // ============================================
     // 7. RESPUESTA
     // ============================================
     const passBuffer = pass.getAsBuffer();
-    console.log(`📦 Business Card pass size: ${passBuffer.length} bytes (fallback icon: ${usedFallback})`);
+    console.log(`📦 Business Card pass size: ${passBuffer.length} bytes (fallback icon: ${usedFallback}, strip: ${hasStrip})`);
 
     const safeName = fullName.replace(/[^a-zA-Z0-9\-_.]/g, '_');
     const filename = `BusinessCard-${safeName}.pkpass`;
@@ -229,7 +267,7 @@ router.post('/business-card/generate', async (req, res) => {
     }
   } finally {
     // Cleanup imágenes temporales
-    for (const f of imageFiles) {
+    for (const f of [...imageFiles, ...stripFiles]) {
       await fs.unlink(path.join(templatePath, f)).catch(() => {});
     }
   }
