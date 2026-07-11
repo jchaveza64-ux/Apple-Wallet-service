@@ -171,7 +171,7 @@ router.post('/business-card/generate', async (req, res) => {
     await certificateManager.initialize();
 
     // ============================================
-    // 4. CREAR PASE - STORECARD (antes: generic — 'generic' no soporta strip/hero image en Apple Wallet)
+    // 4. CREAR PASE - STORECARD (mismo patrón que el loyalty pass de FidelityHub)
     // ============================================
     const serialNumber = `BC-${crypto.randomUUID().slice(0, 8)}-${Date.now()}`.toUpperCase();
 
@@ -200,12 +200,17 @@ router.post('/business-card/generate', async (req, res) => {
 
     // ============================================
     // 5. CAMPOS
+    // Estructura calcada del loyalty pass de FidelityHub (Café Olé), que 
+    // SÍ se ve ordenado: sin headerFields, sin primaryFields — todo va 
+    // en secondaryFields/auxiliaryFields, que Apple acomoda automáticamente 
+    // en filas de 2 debajo del strip, sobre fondo sólido y legible.
+    // La empresa ya se muestra arriba vía logoText (junto al logo), 
+    // igual que "CAFÉ OLÉ" en el pase de referencia.
     // ============================================
-    pushIfValue(pass.headerFields,    { key: 'company', label: 'EMPRESA',  value: company });
-    pushIfValue(pass.primaryFields,   { key: 'name',    label: 'NOMBRE',   value: fullName });
-    pushIfValue(pass.secondaryFields, { key: 'title',   label: 'CARGO',    value: jobTitle });
-    pushIfValue(pass.secondaryFields, { key: 'phone',   label: 'TELÉFONO', value: phone });
-    pushIfValue(pass.auxiliaryFields, { key: 'email',   label: 'EMAIL',    value: email });
+    pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE',   value: fullName });
+    pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',    value: jobTitle });
+    pushIfValue(pass.auxiliaryFields, { key: 'phone', label: 'TELÉFONO', value: phone });
+    pushIfValue(pass.auxiliaryFields, { key: 'email', label: 'EMAIL',    value: email });
 
     // Back fields
     pass.backFields.push({
