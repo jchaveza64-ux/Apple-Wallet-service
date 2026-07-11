@@ -171,7 +171,7 @@ router.post('/business-card/generate', async (req, res) => {
     await certificateManager.initialize();
 
     // ============================================
-    // 4. CREAR PASE - GENERIC
+    // 4. CREAR PASE - STORECARD (antes: generic — 'generic' no soporta strip/hero image en Apple Wallet)
     // ============================================
     const serialNumber = `BC-${crypto.randomUUID().slice(0, 8)}-${Date.now()}`.toUpperCase();
 
@@ -196,7 +196,7 @@ router.post('/business-card/generate', async (req, res) => {
       }
     );
 
-    pass.type = 'generic';
+    pass.type = 'storeCard';
 
     // ============================================
     // 5. CAMPOS
