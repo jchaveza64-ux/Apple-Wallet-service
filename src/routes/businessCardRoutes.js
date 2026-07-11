@@ -171,7 +171,7 @@ router.post('/business-card/generate', async (req, res) => {
     await certificateManager.initialize();
 
     // ============================================
-    // 4. CREAR PASE - STORECARD (mismo patrón que el loyalty pass de FidelityHub)
+    // 4. CREAR PASE - STORECARD
     // ============================================
     const serialNumber = `BC-${crypto.randomUUID().slice(0, 8)}-${Date.now()}`.toUpperCase();
 
@@ -200,36 +200,26 @@ router.post('/business-card/generate', async (req, res) => {
 
     // ============================================
     // 5. CAMPOS
-    // Estructura calcada del loyalty pass de FidelityHub (Café Olé), que 
-    // SÍ se ve ordenado: sin headerFields, sin primaryFields — todo va 
-    // en secondaryFields/auxiliaryFields, que Apple acomoda automáticamente 
-    // en filas de 2 debajo del strip, sobre fondo sólido y legible.
-    // La empresa ya se muestra arriba vía logoText (junto al logo), 
-    // igual que "CAFÉ OLÉ" en el pase de referencia.
+    // FRENTE: solo NOMBRE, CARGO, EMPRESA (menos campos = letras más grandes,
+    // Apple reparte el ancho entre menos elementos por fila).
+    // TELÉFONO y EMAIL se movieron al reverso (backFields), junto con el 
+    // link a la tarjeta digital completa.
     // ============================================
-    pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE',   value: fullName });
-    pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',    value: jobTitle });
-    pushIfValue(pass.auxiliaryFields, { key: 'phone', label: 'TELÉFONO', value: phone });
-    pushIfValue(pass.auxiliaryFields, { key: 'email', label: 'EMAIL',    value: email });
+    pushIfValue(pass.secondaryFields, { key: 'name',    label: 'NOMBRE',  value: fullName });
+    pushIfValue(pass.secondaryFields, { key: 'title',   label: 'CARGO',   value: jobTitle });
+    pushIfValue(pass.auxiliaryFields, { key: 'company', label: 'EMPRESA', value: company });
 
-    // Back fields
+    // ============================================
+    // REVERSO (backFields): teléfono, email y link a la tarjeta completa
+    // ============================================
+    pushIfValue(pass.backFields, { key: 'phone', label: 'Teléfono', value: phone });
+    pushIfValue(pass.backFields, { key: 'email', label: 'Email',    value: email });
+
     pass.backFields.push({
       key: 'cardUrl',
       label: 'Tarjeta digital completa',
       value: cardUrl,
       attributedValue: `<a href="${cardUrl}">${cardUrl}</a>`
-    });
-
-    const contactLines = [
-      `${fullName}${company ? ' - ' + company : ''}`,
-      phone,
-      email
-    ].filter(Boolean).join('\n');
-
-    pass.backFields.push({
-      key: 'contact',
-      label: 'Contacto',
-      value: contactLines
     });
 
     // ============================================
