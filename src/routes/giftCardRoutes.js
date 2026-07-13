@@ -70,6 +70,15 @@ function getLinkHref(type, url) {
 }
 
 /**
+ * Formatea una fecha para mostrar en el pass
+ */
+function formatDateES(dateStr) {
+  const date = new Date(dateStr);
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/**
  * Procesa templates de valores dinámicos para Gift Cards
  * Soporta: {{gift_card.field}}, {{business.field}}, {{customers.field}}
  */
@@ -153,7 +162,8 @@ router.get('/gift-card/wallet', async (req, res) => {
     console.log('✅ Gift Card found:', {
       id: giftCard.id,
       points: giftCard.points_loaded,
-      beneficiary: giftCard.claimed_by_name
+      beneficiary: giftCard.claimed_by_name,
+      expires_at: giftCard.expires_at || 'sin vencimiento'
     });
 
     // ============================================
@@ -336,7 +346,6 @@ router.get('/gift-card/wallet', async (req, res) => {
         certificates: certificateManager.getAllCertificates()
       },
       {
-        // CRÍTICO: Colores van aquí como segundo parámetro en formato RGB
         serialNumber: serialNumber,
         passTypeIdentifier: process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub',
         teamIdentifier: appleConfig.team_id || process.env.TEAM_IDENTIFIER,
@@ -353,6 +362,17 @@ router.get('/gift-card/wallet', async (req, res) => {
     );
 
     pass.type = 'storeCard';
+
+    // ============================================
+    // 5.1 FECHA DE EXPIRACIÓN (Apple nativo)
+    // Si la gift card tiene expires_at, Apple Wallet la marcará como
+    // vencida automáticamente (gris) después de esa fecha.
+    // ============================================
+    if (giftCard.expires_at) {
+      const expirationDate = new Date(giftCard.expires_at);
+      pass.setExpirationDate(expirationDate);
+      console.log('📅 Expiration date set:', expirationDate.toISOString());
+    }
 
     // Relevancia por ubicación
     if (passLocations && passLocations.length > 0) {
@@ -395,7 +415,6 @@ router.get('/gift-card/wallet', async (req, res) => {
     });
 
     // Si hay member_fields configurados en la plataforma, usarlos
-    // (igual que loyalty cards — el usuario define labels y valores)
     if (memberFields.length > 0) {
       memberFields.forEach(field => {
         const value = processTemplate(field.valueTemplate, templateData);
@@ -435,8 +454,30 @@ router.get('/gift-card/wallet', async (req, res) => {
     }
 
     // ============================================
+    // 6.1 CAMPO DE VENCIMIENTO (visible en el frente si hay fecha)
+    // ============================================
+    if (giftCard.expires_at) {
+      pass.auxiliaryFields.push({
+        key: 'expiration',
+        label: 'Vence',
+        value: formatDateES(giftCard.expires_at),
+        changeMessage: 'Tu Gift Card vence el %@'
+      });
+      console.log('📅 Expiration field added:', formatDateES(giftCard.expires_at));
+    }
+
+    // ============================================
     // 7. REVERSO (backFields) — DESDE LA PLATAFORMA
     // ============================================
+
+    // Vencimiento en el reverso también (más detallado)
+    if (giftCard.expires_at) {
+      pass.backFields.push({
+        key: 'expiration_detail',
+        label: '📅 Vigencia',
+        value: `Esta Gift Card vence el ${formatDateES(giftCard.expires_at)}. Después de esta fecha no podrá ser utilizada.`
+      });
+    }
 
     // 1️⃣ Textos personalizados desde custom_fields (configurados en la plataforma)
     if (customFields && Array.isArray(customFields)) {
