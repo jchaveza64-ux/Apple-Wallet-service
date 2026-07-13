@@ -67,6 +67,7 @@ async function downloadConfigImages(appleConfig, templatePath) {
 
 /**
  * Configurar APNs provider
+ * IMPORTANTE: Usar production: true para dispositivos reales
  */
 let apnsProvider = null;
 try {
@@ -83,11 +84,11 @@ try {
         keyId: process.env.APPLE_APNS_KEY_ID,
         teamId: process.env.TEAM_IDENTIFIER
       },
-      production: process.env.NODE_ENV === 'production'
+      production: true  // FIX: Siempre production para passes distribuidos vía App Store/web
     };
 
     apnsProvider = new apn.Provider(apnsOptions);
-    console.log('✅ APNs provider initialized');
+    console.log('✅ APNs provider initialized (production mode)');
   }
 } catch (error) {
   console.error('❌ Failed to initialize APNs:', error.message);
@@ -344,10 +345,6 @@ async function generateUpdatedPass(serialNumber) {
       console.log(`✅ Canonical relevance set: ${passLocations.length} locations, maxDistance=${safeMaxDistance}m`);
     }
 
-    // 🔧 REMOVED: setRelevantDate(new Date())
-    // Causa que Apple marque las tarjetas como vencidas después de la fecha
-    // Las tarjetas de fidelidad NO necesitan relevantDate
-
     const templateData = {
       customer: {
         full_name: customer.full_name,
@@ -373,7 +370,7 @@ async function generateUpdatedPass(serialNumber) {
         key: 'stamps',
         label: 'Sellos',
         value: `${currentStamps} de ${stampsRequired}`,
-        changeMessage: `Ahora tienes %@ sellos`
+        changeMessage: 'Ahora tienes %@ sellos'
       });
 
       pass.secondaryFields.push({
@@ -394,14 +391,16 @@ async function generateUpdatedPass(serialNumber) {
           key: field.key,
           label: field.label,
           value: field.key.includes('points') || field.key.includes('stamps') ? Number(value) : value,
-          changeMessage: "✅ Tus puntos se actualizaron"
+          changeMessage: '¡Ahora tienes %@ puntos!'
         });
       });
 
       console.log(`✅ Points configured: ${loyaltyCard.current_points || 0}`);
     }
 
-    // ⭐ MENSAJES APPLE WALLET - PRIMERO (APARECEN ARRIBA) ⭐
+    // ============================================
+    // ⭐ MENSAJES APPLE WALLET — CON changeMessage PARA LOCK SCREEN ⭐
+    // ============================================
     console.log('💬 Querying apple_wallet_messages...');
     const { data: messages, error: messagesError } = await supabase
       .from('apple_wallet_messages')
@@ -413,8 +412,24 @@ async function generateUpdatedPass(serialNumber) {
     if (messagesError) {
       console.error('⚠️ Error querying messages:', messagesError);
     } else if (messages && messages.length > 0) {
-      console.log(`📬 Adding ${messages.length} messages to pass (AT TOP)`);
+      console.log(`📬 Adding ${messages.length} messages to pass`);
       
+      // ============================================
+      // 🔔 FIX LOCK SCREEN: Campo dedicado para la última notificación
+      // Apple muestra notificación en pantalla de bloqueo cuando un campo
+      // con changeMessage tiene un valor DIFERENTE al que ya tiene el pass.
+      // Usamos key fijo 'latest_notification' con el texto del último mensaje.
+      // Cada vez que llega un mensaje nuevo, el value cambia → iOS muestra
+      // la notificación con el texto del mensaje en la pantalla de bloqueo.
+      // ============================================
+      pass.backFields.push({
+        key: 'latest_notification',
+        label: '📢 Última notificación',
+        value: messages[0].message_text,
+        changeMessage: '%@'
+      });
+      
+      // Agregar historial de mensajes (sin changeMessage, solo informativo)
       messages.forEach((msg, index) => {
         const dateLabel = new Date(msg.created_at).toLocaleDateString('es-ES', {
           month: 'short',
@@ -431,7 +446,7 @@ async function generateUpdatedPass(serialNumber) {
         });
       });
       
-      console.log('✅ Messages added to top of backFields');
+      console.log('✅ Messages added with changeMessage for lock screen notification');
     } else {
       console.log('ℹ️ No messages found for this pass');
     }
@@ -719,10 +734,11 @@ router.post('/notify-update', async (req, res) => {
     const { data: registrations, error } = await supabase
       .from('device_registrations')
       .select('push_token')
-      .eq('serial_number', serialNumber);
+      .eq('serial_number', serialNumber)
+      .neq('push_token', 'auto-registered');  // FIX: Excluir tokens falsos de auto-registro
 
     if (error || !registrations || registrations.length === 0) {
-      console.log('⚠️ No registered devices found');
+      console.log('⚠️ No registered devices found with valid push tokens');
       return res.status(200).json({ message: 'No devices to notify' });
     }
 
@@ -731,25 +747,42 @@ router.post('/notify-update', async (req, res) => {
       return res.status(500).json({ error: 'APNs not configured' });
     }
 
+    let successCount = 0;
+    let failCount = 0;
+
     const promises = registrations.map(async (registration) => {
       const notification = new apn.Notification();
       notification.topic = process.env.PASS_TYPE_IDENTIFIER || 'pass.com.innobizz.fidelityhub';
-      notification.payload = {};
+      notification.payload = {};  // Empty payload - Apple's spec for pass updates
+      notification.pushType = 'background';  // FIX: Correcto para pass updates
+      notification.priority = 5;  // FIX: Background priority para pass updates
 
       try {
         const result = await apnsProvider.send(notification, registration.push_token);
-        console.log('📤 Empty push sent:', result);
+        if (result.failed && result.failed.length > 0) {
+          console.error('❌ Push failed for token:', result.failed[0].response);
+          failCount++;
+        } else {
+          console.log('📤 Empty push sent successfully');
+          successCount++;
+        }
         return result;
       } catch (err) {
-        console.error('❌ Push failed:', err);
+        console.error('❌ Push error:', err.message);
+        failCount++;
         return null;
       }
     });
 
     await Promise.all(promises);
 
-    console.log(`✅ Sent ${promises.length} EMPTY push notifications`);
-    res.json({ message: `Notified ${promises.length} devices` });
+    console.log(`✅ Push results: ${successCount} sent, ${failCount} failed out of ${registrations.length} devices`);
+    res.json({ 
+      message: `Notified ${successCount} devices`,
+      sent: successCount,
+      failed: failCount,
+      total: registrations.length
+    });
 
   } catch (error) {
     console.error('❌ Notification failed:', error);
