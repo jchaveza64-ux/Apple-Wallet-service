@@ -167,11 +167,11 @@ router.get('/gift-card/wallet', async (req, res) => {
     });
 
     // ============================================
-    // 2. OBTENER DATOS DEL NEGOCIO
+    // 2. OBTENER DATOS DEL NEGOCIO + published_domain
     // ============================================
     const { data: businessData, error: businessError } = await supabase
       .from('businesses')
-      .select('id, name, description')
+      .select('id, name, description, published_domain')
       .eq('id', giftCard.business_id)
       .single();
 
@@ -181,6 +181,10 @@ router.get('/gift-card/wallet', async (req, res) => {
     }
 
     console.log('✅ Business:', businessData.name);
+
+    // Resolver dominio para el QR (published_domain del negocio o fallback global)
+    const resolvedDomain = businessData.published_domain || 'loyalty.innobizz.biz';
+    console.log('🌐 Resolved domain for QR:', resolvedDomain);
 
     // ============================================
     // 3. OBTENER CONFIGURACIÓN DE WALLET PARA GIFT CARDS
@@ -520,7 +524,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     console.log(`✅ Back fields: ${pass.backFields.length} fields`);
 
     // ============================================
-    // 8. BARCODE — QR con token de la Gift Card
+    // 8. BARCODE — QR con URL de canje de la Gift Card
     // ============================================
     const barcodeMessage = processTemplate(
       barcodeConfig.message_template, 
@@ -528,13 +532,13 @@ router.get('/gift-card/wallet', async (req, res) => {
     );
 
     pass.setBarcodes({
-      message: barcodeMessage || `GIFTCARD:${giftCard.token}`,
+      message: barcodeMessage || `https://${resolvedDomain}/meseros/gift-card/${giftCard.token}`,
       format: barcodeConfig.format || 'PKBarcodeFormatQR',
       messageEncoding: barcodeConfig.encoding || 'iso-8859-1',
       altText: barcodeConfig.alt_text || `Gift Card · ${giftCard.points_remaining} pts`
     });
 
-    console.log('✅ Barcode configured');
+    console.log('✅ Barcode configured with URL:', barcodeMessage || `https://${resolvedDomain}/meseros/gift-card/${giftCard.token}`);
 
     // ============================================
     // 9. GENERAR Y ENVIAR
