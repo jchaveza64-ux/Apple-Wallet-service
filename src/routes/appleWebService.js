@@ -574,7 +574,7 @@ router.post('/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentif
       console.log('✅ Loyalty pass detected for:', customer.full_name);
     } else {
       // Gift Card: usar datos directos de la gift card
-      customerId = passInfo.data.id;
+      customerId = null; // Gift Card beneficiaries are not in customers table
       businessId = passInfo.data.business_id;
       console.log('✅ Gift Card pass detected, business:', businessId);
     }
@@ -672,7 +672,7 @@ router.get('/v1/passes/:passTypeIdentifier/:serialNumber', async (req, res) => {
           customerId = customer.id;
           businessId = customer.business_id;
         } else {
-          customerId = passInfo.data.id;
+          customerId = null; // Gift Card beneficiaries are not in customers table
           businessId = passInfo.data.business_id;
         }
 
