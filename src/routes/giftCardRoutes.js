@@ -182,7 +182,7 @@ router.get('/gift-card/wallet', async (req, res) => {
 
     console.log('✅ Business:', businessData.name);
 
-    // Resolver dominio para el QR (published_domain del negocio o fallback global)
+    // Resolver dominio para el QR
     const resolvedDomain = businessData.published_domain || 'loyalty.innobizz.biz';
     console.log('🌐 Resolved domain for QR:', resolvedDomain);
 
@@ -242,10 +242,8 @@ router.get('/gift-card/wallet', async (req, res) => {
     // ============================================
     const templatePath = path.join(__dirname, '../templates/giftcard.pass');
 
-    // Asegurar que la carpeta existe
     await fs.mkdir(templatePath, { recursive: true });
 
-    // Escribir pass.json mínimo
     const passJsonContent = {
       formatVersion: 1,
       passTypeIdentifier: '',
@@ -260,7 +258,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       JSON.stringify(passJsonContent)
     );
 
-    // Limpiar imágenes viejas
     const imageFiles = [
       'logo.png', 'logo@2x.png', 'logo@3x.png',
       'icon.png', 'icon@2x.png', 'icon@3x.png',
@@ -342,7 +339,9 @@ router.get('/gift-card/wallet', async (req, res) => {
     // ============================================
     // 5. CREAR EL PASE - GIFT CARD
     // ============================================
-    const serialNumber = `GC-${giftCard.id.slice(0, 8)}-${Date.now()}`.toUpperCase();
+    // FIX: Usar gift card token como serialNumber para que coincida con
+    // lo que send-apple-wallet-gift-card-message envía a /notify-update
+    const serialNumber = giftCard.token;
 
     const pass = await PKPass.from(
       {
@@ -369,8 +368,6 @@ router.get('/gift-card/wallet', async (req, res) => {
 
     // ============================================
     // 5.1 FECHA DE EXPIRACIÓN (Apple nativo)
-    // Si la gift card tiene expires_at, Apple Wallet la marcará como
-    // vencida automáticamente (gris) después de esa fecha.
     // ============================================
     if (giftCard.expires_at) {
       const expirationDate = new Date(giftCard.expires_at);
@@ -395,7 +392,6 @@ router.get('/gift-card/wallet', async (req, res) => {
     // 6. CONFIGURAR CAMPOS — DESDE LA PLATAFORMA
     // ============================================
 
-    // Datos disponibles para templates
     const templateData = {
       giftCard: {
         points_remaining: giftCard.points_remaining,
@@ -411,14 +407,13 @@ router.get('/gift-card/wallet', async (req, res) => {
       serialNumber: serialNumber
     };
 
-    // Header: GIFT CARD 🎁 (siempre visible arriba a la derecha)
+    // Header: GIFT CARD 🎁
     pass.headerFields.push({
       key: 'gift_label',
       label: '',
       value: 'GIFT CARD 🎁'
     });
 
-    // Si hay member_fields configurados en la plataforma, usarlos
     if (memberFields.length > 0) {
       memberFields.forEach(field => {
         const value = processTemplate(field.valueTemplate, templateData);
@@ -429,7 +424,6 @@ router.get('/gift-card/wallet', async (req, res) => {
           value: field.key.includes('points') ? Number(value) || value : value
         };
 
-        // changeMessage para notificaciones automáticas de Apple
         if (field.key.includes('points')) {
           fieldData.changeMessage = '¡Ahora tienes %@ puntos en tu Gift Card!';
         }
@@ -440,7 +434,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       console.log(`✅ Fields from platform config: ${memberFields.length} fields`);
 
     } else {
-      // DEFAULTS si no se han configurado member_fields en la plataforma
       pass.secondaryFields.push({
         key: 'points',
         label: 'Puntos disponibles',
@@ -454,11 +447,11 @@ router.get('/gift-card/wallet', async (req, res) => {
         value: giftCard.claimed_by_name || 'Portador'
       });
 
-      console.log('✅ Using default gift card fields (no member_fields configured)');
+      console.log('✅ Using default gift card fields');
     }
 
     // ============================================
-    // 6.1 CAMPO DE VENCIMIENTO (visible en el frente si hay fecha)
+    // 6.1 CAMPO DE VENCIMIENTO
     // ============================================
     if (giftCard.expires_at) {
       pass.auxiliaryFields.push({
@@ -471,10 +464,9 @@ router.get('/gift-card/wallet', async (req, res) => {
     }
 
     // ============================================
-    // 7. REVERSO (backFields) — DESDE LA PLATAFORMA
+    // 7. REVERSO (backFields)
     // ============================================
 
-    // Vencimiento en el reverso también (más detallado)
     if (giftCard.expires_at) {
       pass.backFields.push({
         key: 'expiration_detail',
@@ -483,7 +475,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       });
     }
 
-    // 1️⃣ Textos personalizados desde custom_fields (configurados en la plataforma)
     if (customFields && Array.isArray(customFields)) {
       const backsideTexts = customFields.filter(item => item.type === 'text');
       backsideTexts.forEach(item => {
@@ -497,7 +488,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       });
     }
 
-    // 2️⃣ Links desde links_fields (configurados en la plataforma)
     if (linksFields && Array.isArray(linksFields)) {
       const activeLinks = linksFields.filter(link => link.enabled);
       activeLinks.forEach(link => {
@@ -512,7 +502,6 @@ router.get('/gift-card/wallet', async (req, res) => {
       });
     }
 
-    // Si no hay ningún backField configurado, poner un default mínimo
     if (pass.backFields.length === 0) {
       pass.backFields.push({
         key: 'gc_info',
@@ -524,7 +513,7 @@ router.get('/gift-card/wallet', async (req, res) => {
     console.log(`✅ Back fields: ${pass.backFields.length} fields`);
 
     // ============================================
-    // 8. BARCODE — QR con URL de canje de la Gift Card
+    // 8. BARCODE — QR con URL de canje
     // ============================================
     const barcodeMessage = processTemplate(
       barcodeConfig.message_template, 
@@ -563,7 +552,7 @@ router.get('/gift-card/wallet', async (req, res) => {
       .from('gift_cards')
       .update({ status: 'claimed' })
       .eq('id', giftCard.id)
-      .eq('status', 'registered'); // Safety: solo actualiza si sigue en registered
+      .eq('status', 'registered');
 
     if (updateError) {
       console.error('⚠️ Failed to update gift card status:', updateError);
