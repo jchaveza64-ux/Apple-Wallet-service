@@ -200,14 +200,21 @@ router.post('/business-card/generate', async (req, res) => {
 
     // ============================================
     // 5. CAMPOS
-    // FRENTE: solo NOMBRE y CARGO. La empresa YA se muestra arriba, 
-    // junto al logo, vía logoText (línea de arriba, sección 4) — por 
-    // eso se quitó el campo EMPRESA duplicado que estaba aquí.
+    // FRENTE: NOMBRE y CARGO (secondaryFields, primera fila), seguido 
+    // de una fila con la instrucción para encontrar el resto de datos 
+    // (auxiliaryFields, segunda fila). La empresa ya se muestra arriba, 
+    // junto al logo, vía logoText.
     // TELÉFONO y EMAIL van en el reverso (backFields), junto con el 
     // link a la tarjeta digital completa.
     // ============================================
     pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE', value: fullName });
     pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',  value: jobTitle });
+
+    pushIfValue(pass.auxiliaryFields, { 
+      key: 'hint', 
+      label: '', 
+      value: 'Haz clic arriba en los 3 puntos  ⋯' 
+    });
 
     // ============================================
     // REVERSO (backFields): teléfono, email y link a la tarjeta completa
