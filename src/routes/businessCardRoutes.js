@@ -200,14 +200,14 @@ router.post('/business-card/generate', async (req, res) => {
 
     // ============================================
     // 5. CAMPOS
-    // FRENTE: solo NOMBRE, CARGO, EMPRESA (menos campos = letras más grandes,
-    // Apple reparte el ancho entre menos elementos por fila).
-    // TELÉFONO y EMAIL se movieron al reverso (backFields), junto con el 
+    // FRENTE: solo NOMBRE y CARGO. La empresa YA se muestra arriba, 
+    // junto al logo, vía logoText (línea de arriba, sección 4) — por 
+    // eso se quitó el campo EMPRESA duplicado que estaba aquí.
+    // TELÉFONO y EMAIL van en el reverso (backFields), junto con el 
     // link a la tarjeta digital completa.
     // ============================================
-    pushIfValue(pass.secondaryFields, { key: 'name',    label: 'NOMBRE',  value: fullName });
-    pushIfValue(pass.secondaryFields, { key: 'title',   label: 'CARGO',   value: jobTitle });
-    pushIfValue(pass.auxiliaryFields, { key: 'company', label: 'EMPRESA', value: company });
+    pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE', value: fullName });
+    pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',  value: jobTitle });
 
     // ============================================
     // REVERSO (backFields): teléfono, email y link a la tarjeta completa
