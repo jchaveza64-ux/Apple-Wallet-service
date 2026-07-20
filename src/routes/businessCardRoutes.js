@@ -202,24 +202,26 @@ router.post('/business-card/generate', async (req, res) => {
     // 5. CAMPOS
     // FRENTE: solo NOMBRE y CARGO. La empresa ya se muestra arriba, 
     // junto al logo, vía logoText.
-    // TELÉFONO y EMAIL van en el reverso (backFields), junto con el 
-    // link a la tarjeta digital completa.
     // ============================================
     pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE', value: fullName });
     pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',  value: jobTitle });
 
     // ============================================
-    // REVERSO (backFields): teléfono, email y link a la tarjeta completa
+    // REVERSO (backFields): el link a la tarjeta completa va PRIMERO 
+    // (mayor prioridad visual) y con emoji para diferenciarlo del resto 
+    // de campos, ya que Apple no permite cambiar color/tamaño por campo 
+    // individual — el emoji es el único recurso real de contraste visual 
+    // disponible sin tocar el estilo global del pase.
     // ============================================
-    pushIfValue(pass.backFields, { key: 'phone', label: 'Teléfono', value: phone });
-    pushIfValue(pass.backFields, { key: 'email', label: 'Email',    value: email });
-
     pass.backFields.push({
       key: 'cardUrl',
-      label: 'Tarjeta digital completa',
+      label: '🔗 Ver tarjeta completa',
       value: cardUrl,
       attributedValue: `<a href="${cardUrl}">${cardUrl}</a>`
     });
+
+    pushIfValue(pass.backFields, { key: 'phone', label: 'Teléfono', value: phone });
+    pushIfValue(pass.backFields, { key: 'email', label: 'Email',    value: email });
 
     // ============================================
     // 6. BARCODE (QR con cardUrl)
