@@ -384,14 +384,42 @@ async function generateUpdatedGiftCardPass(serialNumber) {
 
     const resolvedDomain = businessData.published_domain || 'loyalty.innobizz.biz';
 
-    const { data: passkitConfig } = await supabase
-      .from('passkit_configs')
-      .select('*')
-      .eq('business_id', giftCard.business_id)
-      .eq('program_type', 'gift_card')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    // ============================================
+    // RESOLUCIÓN DE CONFIG DE GIFT CARD
+    // 1) Preferir el diseño vinculado explícitamente a esta gift card
+    //    (gift_cards.passkit_config_id) — soporta múltiples diseños activos.
+    // 2) Fallback legacy: gift cards antiguas sin vínculo → diseño activo
+    //    más reciente del negocio (comportamiento anterior).
+    // ============================================
+    let passkitConfig = null;
+
+    if (giftCard.passkit_config_id) {
+      const { data: cfgById } = await supabase
+        .from('passkit_configs')
+        .select('*')
+        .eq('id', giftCard.passkit_config_id)
+        .maybeSingle();
+
+      if (cfgById) {
+        passkitConfig = cfgById;
+        console.log('🔎 Config resuelta por gift_cards.passkit_config_id:', giftCard.passkit_config_id);
+      }
+    }
+
+    if (!passkitConfig) {
+      const { data: cfgLegacy } = await supabase
+        .from('passkit_configs')
+        .select('*')
+        .eq('business_id', giftCard.business_id)
+        .eq('program_type', 'gift_card')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      passkitConfig = cfgLegacy;
+      console.log('🔎 Config resuelta por fallback legacy (gift card sin passkit_config_id)');
+    }
 
     if (!passkitConfig) throw new Error('Gift Card wallet config not found');
 
