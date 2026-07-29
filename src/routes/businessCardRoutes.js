@@ -222,3 +222,37 @@ router.post('/business-card/generate', async (req, res) => {
     };
 
     if (walletQrText && walletQrText.trim() !== '') {
+      barcodeConfig.altText = walletQrText.trim();
+    }
+
+    pass.setBarcodes(barcodeConfig);
+
+    // ============================================
+    // 7. RESPUESTA
+    // ============================================
+    const passBuffer = pass.getAsBuffer();
+    console.log(`📦 Business Card pass size: ${passBuffer.length} bytes (fallback icon: ${usedFallback}, strip: ${hasStrip})`);
+
+    const safeName = fullName.replace(/[^a-zA-Z0-9\-_.]/g, '_');
+    const filename = `BusinessCard-${safeName}.pkpass`;
+
+    res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', passBuffer.length);
+    res.send(passBuffer);
+
+    console.log('✅ Business Card pass sent:', serialNumber);
+  } catch (error) {
+    console.error('❌ Business Card Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to generate business card pass',
+        details: error.message
+      });
+    }
+  } finally {
+    await fs.rm(templatePath, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+export default router;
