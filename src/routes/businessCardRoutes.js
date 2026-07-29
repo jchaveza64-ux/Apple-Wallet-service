@@ -70,11 +70,9 @@ function pushIfValue(arr, field) {
 // POST /business-card/generate
 // ============================================
 router.post('/business-card/generate', async (req, res) => {
-  // CAMBIO CLAVE: carpeta temporal ÚNICA por petición (no compartida),
-  // así dos peticiones simultáneas nunca pisan los archivos una de la
-  // otra. Esto elimina la condición de carrera que causaba el
-  // "serialNumber is not allowed to be empty" y el crash por memoria.
-  const templatePath = path.join(os.tmpdir(), `businesscard-${crypto.randomUUID()}`);
+  // Carpeta temporal ÚNICA por petición, con extensión .pass (convención
+  // requerida por passkit-generator para reconocer la carpeta modelo).
+  const templatePath = path.join(os.tmpdir(), `businesscard-${crypto.randomUUID()}.pass`);
   const imageFiles = [
     'logo.png', 'logo@2x.png', 'logo@3x.png',
     'icon.png', 'icon@2x.png', 'icon@3x.png',
@@ -125,9 +123,6 @@ router.post('/business-card/generate', async (req, res) => {
       path.join(templatePath, 'pass.json'),
       JSON.stringify(passJsonContent)
     );
-
-    // (Ya no hace falta "limpiar imágenes viejas": la carpeta es nueva
-    // y exclusiva de esta petición, no puede tener archivos de antes)
 
     // ============================================
     // 2. IMÁGENES (logo + icon) con fallback
@@ -203,19 +198,10 @@ router.post('/business-card/generate', async (req, res) => {
 
     // ============================================
     // 5. CAMPOS
-    // FRENTE: solo NOMBRE y CARGO. La empresa ya se muestra arriba, 
-    // junto al logo, vía logoText.
     // ============================================
     pushIfValue(pass.secondaryFields, { key: 'name',  label: 'NOMBRE', value: fullName });
     pushIfValue(pass.secondaryFields, { key: 'title', label: 'CARGO',  value: jobTitle });
 
-    // ============================================
-    // REVERSO (backFields): el link a la tarjeta completa va PRIMERO 
-    // (mayor prioridad visual) y con emoji para diferenciarlo del resto 
-    // de campos, ya que Apple no permite cambiar color/tamaño por campo 
-    // individual — el emoji es el único recurso real de contraste visual 
-    // disponible sin tocar el estilo global del pase.
-    // ============================================
     pass.backFields.push({
       key: 'cardUrl',
       label: '🔗 Ver tarjeta completa',
@@ -236,39 +222,3 @@ router.post('/business-card/generate', async (req, res) => {
     };
 
     if (walletQrText && walletQrText.trim() !== '') {
-      barcodeConfig.altText = walletQrText.trim();
-    }
-
-    pass.setBarcodes(barcodeConfig);
-
-    // ============================================
-    // 7. RESPUESTA
-    // ============================================
-    const passBuffer = pass.getAsBuffer();
-    console.log(`📦 Business Card pass size: ${passBuffer.length} bytes (fallback icon: ${usedFallback}, strip: ${hasStrip})`);
-
-    const safeName = fullName.replace(/[^a-zA-Z0-9\-_.]/g, '_');
-    const filename = `BusinessCard-${safeName}.pkpass`;
-
-    res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', passBuffer.length);
-    res.send(passBuffer);
-
-    console.log('✅ Business Card pass sent:', serialNumber);
-  } catch (error) {
-    console.error('❌ Business Card Error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Failed to generate business card pass',
-        details: error.message
-      });
-    }
-  } finally {
-    // Limpieza: eliminar la carpeta temporal COMPLETA de esta petición
-    // (ya no archivo por archivo, ahora es una carpeta única propia)
-    await fs.rm(templatePath, { recursive: true, force: true }).catch(() => {});
-  }
-});
-
-export default router;
