@@ -4,6 +4,7 @@ import certificateManager from '../config/certificates.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
+import os from 'os';
 import https from 'https';
 import crypto from 'crypto';
 
@@ -69,7 +70,11 @@ function pushIfValue(arr, field) {
 // POST /business-card/generate
 // ============================================
 router.post('/business-card/generate', async (req, res) => {
-  const templatePath = path.join(__dirname, '../templates/businesscard.pass');
+  // CAMBIO CLAVE: carpeta temporal ÚNICA por petición (no compartida),
+  // así dos peticiones simultáneas nunca pisan los archivos una de la
+  // otra. Esto elimina la condición de carrera que causaba el
+  // "serialNumber is not allowed to be empty" y el crash por memoria.
+  const templatePath = path.join(os.tmpdir(), `businesscard-${crypto.randomUUID()}`);
   const imageFiles = [
     'logo.png', 'logo@2x.png', 'logo@3x.png',
     'icon.png', 'icon@2x.png', 'icon@3x.png',
@@ -104,7 +109,7 @@ router.post('/business-card/generate', async (req, res) => {
     console.log('💼 Generating Business Card pass for:', fullName);
 
     // ============================================
-    // 1. TEMPLATE FOLDER + pass.json mínimo
+    // 1. TEMPLATE FOLDER (única, nueva) + pass.json mínimo
     // ============================================
     await fs.mkdir(templatePath, { recursive: true });
     const passJsonContent = {
@@ -121,10 +126,8 @@ router.post('/business-card/generate', async (req, res) => {
       JSON.stringify(passJsonContent)
     );
 
-    // Limpiar imágenes viejas
-    for (const f of [...imageFiles, ...stripFiles]) {
-      await fs.unlink(path.join(templatePath, f)).catch(() => {});
-    }
+    // (Ya no hace falta "limpiar imágenes viejas": la carpeta es nueva
+    // y exclusiva de esta petición, no puede tener archivos de antes)
 
     // ============================================
     // 2. IMÁGENES (logo + icon) con fallback
@@ -262,10 +265,9 @@ router.post('/business-card/generate', async (req, res) => {
       });
     }
   } finally {
-    // Cleanup imágenes temporales
-    for (const f of [...imageFiles, ...stripFiles]) {
-      await fs.unlink(path.join(templatePath, f)).catch(() => {});
-    }
+    // Limpieza: eliminar la carpeta temporal COMPLETA de esta petición
+    // (ya no archivo por archivo, ahora es una carpeta única propia)
+    await fs.rm(templatePath, { recursive: true, force: true }).catch(() => {});
   }
 });
 
