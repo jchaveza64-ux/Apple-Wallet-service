@@ -70,8 +70,6 @@ function pushIfValue(arr, field) {
 // POST /business-card/generate
 // ============================================
 router.post('/business-card/generate', async (req, res) => {
-  // Carpeta temporal ÚNICA por petición, con extensión .pass (convención
-  // requerida por passkit-generator para reconocer la carpeta modelo).
   const templatePath = path.join(os.tmpdir(), `businesscard-${crypto.randomUUID()}.pass`);
   const imageFiles = [
     'logo.png', 'logo@2x.png', 'logo@3x.png',
@@ -93,8 +91,7 @@ router.post('/business-card/generate', async (req, res) => {
       walletBgColor = '#1a1a1a',
       walletTextColor = '#ffffff',
       walletLabelColor = '#c8c8c8',
-      walletHeroImage = '',
-      walletQrText = ''
+      walletHeroImage = ''
     } = req.body || {};
 
     if (!fullName || !cardUrl) {
@@ -213,19 +210,14 @@ router.post('/business-card/generate', async (req, res) => {
     pushIfValue(pass.backFields, { key: 'email', label: 'Email',    value: email });
 
     // ============================================
-    // 6. BARCODE (QR con cardUrl)
+    // 6. BARCODE (QR con cardUrl) — texto fijo "by Summa"
     // ============================================
-    const barcodeConfig = {
+    pass.setBarcodes({
       message: cardUrl,
       format: 'PKBarcodeFormatQR',
-      messageEncoding: 'iso-8859-1'
-    };
-
-    if (walletQrText && walletQrText.trim() !== '') {
-      barcodeConfig.altText = walletQrText.trim();
-    }
-
-    pass.setBarcodes(barcodeConfig);
+      messageEncoding: 'iso-8859-1',
+      altText: 'by Summa'
+    });
 
     // ============================================
     // 7. RESPUESTA
